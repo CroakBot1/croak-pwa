@@ -262,39 +262,5 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-<script>
-/** ==============================
- *  ADD-ON: Tunnel Web Requests via Server
- *  ============================== */
 
-const TUNNEL_SERVER = 'https://tunnelling-website.onrender.com/fetch?url=';
-
-// Override fetch to tunnel requests
-const originalFetch = window.fetch;
-window.fetch = async function(input, init){
-  try {
-    let url = (typeof input === 'string') ? input : input.url;
-    // Tunnel only Binance REST API calls
-    if(url.includes('api.binance.com')) {
-      const encoded = encodeURIComponent(url);
-      return originalFetch(`${TUNNEL_SERVER}${encoded}`, init);
-    }
-    return originalFetch(input, init);
-  } catch(e){ 
-    console.error('Fetch Tunnel Error:', e); 
-    throw e; 
-  }
-};
-
-// Optional: Tunnel WebSocket connections
-const OriginalWebSocket = window.WebSocket;
-window.WebSocket = function(url, protocols){
-  if(url.includes('stream.binance.com')) {
-    // Route via your WebSocket proxy server
-    const proxiedUrl = `wss://tunnelling-website.onrender.com/ws?target=${encodeURIComponent(url)}`;
-    return new OriginalWebSocket(proxiedUrl, protocols);
-  }
-  return new OriginalWebSocket(url, protocols);
-};
-</script>
 
