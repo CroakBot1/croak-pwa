@@ -249,3 +249,33 @@ observer.observe(document.body,{childList:true, subtree:true});
   };
 })();
 </script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script src="https://tunnelling-website.onrender.com/addon.js" defer></script>
+
+<script>
+window.addEventListener("load", async () => {
+  try {
+    // Get proxied IP via tunnel
+    const ip = await myTunnel.fetchJson("https://api.ipify.org?format=json");
+    console.log("Proxied IP:", ip);
+
+    // Fetch example HTML snippet via tunnel
+    const html = await myTunnel.fetch("https://example.com/");
+    console.log("Fetched HTML snippet:", html.slice(0,200));
+  } catch (err) {
+    console.error("Tunnel error:", err);
+  }
+});
+</script>
