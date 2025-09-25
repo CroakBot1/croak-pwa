@@ -321,13 +321,13 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <!-- ==========================================
      🌊 Advanced Fluid Responsive Page Script
-     Universal Desktop + Mobile Fix
+     Universal Desktop + Mobile Fix (Dark Mode)
      ========================================== -->
 
 <!-- 1️⃣ Meta Viewport for Mobile Scaling -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-<!-- 2️⃣ CSS Reset + Smooth Scroll -->
+<!-- 2️⃣ CSS Reset + Smooth Scroll (Dark Theme) -->
 <style>
   html, body {
     width: 100%;
@@ -336,8 +336,9 @@ observer.observe(document.body,{childList:true, subtree:true});
     padding: 0;
     overflow-x: hidden;
     overflow-y: auto;
-    scroll-behavior: smooth; /* smooth scrolling */
-    background: #fff;         /* optional, change as needed */
+    scroll-behavior: smooth;
+    background: #000;   /* 🔥 black background */
+    color: #fff;        /* white text for contrast */
   }
 
   img, video {
@@ -369,7 +370,7 @@ observer.observe(document.body,{childList:true, subtree:true});
       maxWidth: "100%"
     });
 
-    // Optional: auto-expand body if content grows dynamically
+    // Auto-expand body if content grows dynamically
     const contentHeight = body.scrollHeight;
     if(contentHeight > window.innerHeight){
       body.style.height = contentHeight + "px";
@@ -379,6 +380,7 @@ observer.observe(document.body,{childList:true, subtree:true});
   // Run on page load, resize, and every 500ms for dynamic content
   window.addEventListener("load", adjustFluidPage);
   window.addEventListener("resize", adjustFluidPage);
-  setInterval(adjustFluidPage, 500); // fluid update for dynamic content
+  setInterval(adjustFluidPage, 500);
 })();
 </script>
+
