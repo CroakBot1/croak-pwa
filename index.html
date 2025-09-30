@@ -432,14 +432,9 @@ observer.observe(document.body,{childList:true, subtree:true});
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     max-width: 280px;
   }
-  #floating-signal h4 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: bold;
-  }
   #floating-signal p {
-    margin: 4px 0 0;
-    font-size: 12px;
+    margin: 0;
+    font-size: 13px;
     line-height: 1.4;
   }
   #floating-signal .close-btn {
@@ -462,7 +457,6 @@ observer.observe(document.body,{childList:true, subtree:true});
   box.id = 'floating-signal';
   box.innerHTML = `
     <button class="close-btn" title="Close">✕</button>
-    <h4>Good Morning</h4>
     <p>Use <strong>1m</strong>, <strong>5m</strong>, <strong>15m</strong><br>
     for this buy signal to <strong>bot 1</strong>.</p>
   `;
@@ -475,3 +469,4 @@ observer.observe(document.body,{childList:true, subtree:true});
   });
 })();
 </script>
+
