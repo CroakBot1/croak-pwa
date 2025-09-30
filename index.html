@@ -384,3 +384,146 @@ observer.observe(document.body,{childList:true, subtree:true});
 })();
 </script>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- Paste this just before </body> or run in console -->
+<script>
+(function(){
+  if (window._floatingBuySignalInjected) return;
+  window._floatingBuySignalInjected = true;
+
+  // --- Styles ---
+  const css = `
+  #floating-buy-signal {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 999999;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(17,24,39,0.95);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 12px;
+    box-shadow: 0 6px 18px rgba(2,6,23,0.45);
+    backdrop-filter: blur(6px);
+    min-width: 240px;
+    max-width: 320px;
+  }
+  #floating-buy-signal .fbs-title { font-weight: 700; font-size: 14px; letter-spacing: 0.2px; }
+  #floating-buy-signal .fbs-sub { font-size: 12px; opacity: 0.9; margin-top:2px; }
+  #floating-buy-signal .fbs-controls { display:flex; gap:6px; margin-left:6px; }
+  #floating-buy-signal .fbs-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.06);
+    color: #fff;
+    padding: 6px 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  #floating-buy-signal .fbs-btn.active {
+    background: linear-gradient(90deg, rgba(34,197,94,0.95), rgba(16,185,129,0.95));
+    color: #041014;
+    border: none;
+    font-weight: 700;
+  }
+  #floating-buy-signal .fbs-close {
+    margin-left: 8px;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  @media (max-width:420px){
+    #floating-buy-signal { right: 8px; left: 8px; min-width: auto; justify-content: space-between; padding:10px; }
+  }`;
+  const style = document.createElement('style');
+  style.appendChild(document.createTextNode(css));
+  document.head.appendChild(style);
+
+  // --- Element ---
+  const container = document.createElement('div');
+  container.id = 'floating-buy-signal';
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;flex:1;min-width:0">
+      <div class="fbs-title">BUNTAG</div>
+      <div class="fbs-sub">use <strong>1m</strong>, <strong>5m</strong>, <strong>15m</strong> for this buy signal to <strong>bot 1</strong></div>
+    </div>
+    <div class="fbs-controls" role="group" aria-label="timeframe controls">
+      <button class="fbs-btn" data-tf="1m">1m</button>
+      <button class="fbs-btn" data-tf="5m">5m</button>
+      <button class="fbs-btn" data-tf="15m">15m</button>
+    </div>
+    <button class="fbs-close" title="Close">✕</button>
+  `;
+  document.body.appendChild(container);
+
+  // --- Behavior ---
+  const buttons = container.querySelectorAll('.fbs-btn');
+  function setActive(btn){
+    buttons.forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  // default active 1m
+  setActive(container.querySelector('.fbs-btn[data-tf="1m"]'));
+
+  buttons.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const tf = btn.getAttribute('data-tf');
+      setActive(btn);
+      // Emit a custom event on window (so external code can listen)
+      const ev = new CustomEvent('floatingBuySignal', { detail: { timeframe: tf, source: 'floating-ui' }});
+      window.dispatchEvent(ev);
+
+      // Default helper function to send to bot1 (override this in your page)
+      if (typeof window.sendBuySignalToBot1 === 'function') {
+        try {
+          window.sendBuySignalToBot1(tf);
+        } catch (err) {
+          console.error('sendBuySignalToBot1 error:', err);
+        }
+      } else {
+        // default behaviour: just log (you can replace this)
+        console.log('[floatingBuySignal] send to bot1 (default logger). timeframe=', tf);
+      }
+    });
+  });
+
+  // close action
+  container.querySelector('.fbs-close').addEventListener('click', ()=>{
+    container.remove();
+    // optional: remember closed for session
+    window._floatingBuySignalInjected = false;
+  });
+
+  // small accessibility: press Esc to close
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') {
+      const el = document.getElementById('floating-buy-signal');
+      if (el) el.remove();
+      window._floatingBuySignalInjected = false;
+    }
+  });
+})();
+</script>
