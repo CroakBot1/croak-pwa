@@ -502,3 +502,29 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+<script>
+// ADD-ON SCRIPT: Dugang og 50 ka pairs sa SYMBOLS
+(function(){
+  const EXTRA_SYMBOLS = [
+    "ZECUSDT","KSMUSDT","ROSEUSDT","1INCHUSDT","COMPUSDT","YFIUSDT","WAVESUSDT","KAVAUSDT","BATUSDT","NEOUSDT",
+    "XTZUSDT","DASHUSDT","OMGUSDT","ZILUSDT","ONTUSDT","ICXUSDT","IOSTUSDT","HOTUSDT","THETAUSDT","RVNUSDT",
+    "SRMUSDT","CELOUSDT","ANKRUSDT","BATUSDT","NKNUSDT","CVCUSDT","STORJUSDT","OCEANUSDT","BANDUSDT","ZENUSDT",
+    "FLOWUSDT","KDAUSDT","MINAUSDT","GALAUSDT","FLUXUSDT","LRCUSDT","SXPUSDT","SKLUSDT","MTLUSDT","ARDRUSDT",
+    "CELRUSDT","CHSBUSDT","JSTUSDT","TRBUSDT","BALUSDT","BELUSDT","CTSIUSDT","DGBUSDT","HNTUSDT","XEMUSDT"
+  ];
+
+  if (typeof SYMBOLS !== "undefined") {
+    SYMBOLS.push(...EXTRA_SYMBOLS);
+
+    // init states for extra pairs
+    EXTRA_SYMBOLS.forEach(s=>{
+      per[s] = { candles:[], lastAlertTs:0, lastWsCandleTs:0 };
+      const opt = document.createElement('option'); 
+      opt.value = s; opt.textContent = s; 
+      symbolSel.appendChild(opt);
+    });
+
+    console.log("✅ Added 50 extra pairs:", EXTRA_SYMBOLS.length);
+  }
+})();
+</script>
