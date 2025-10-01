@@ -486,21 +486,7 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-<script>
-// ADD-ON SCRIPT: Update title ug heading text to "100 Pairs"
-(function(){
-  // Update tab title
-  document.title = document.title.replace("50 Pairs", "100 Pairs");
 
-  // Update <h2> heading text
-  const h2 = document.querySelector("h2");
-  if (h2 && h2.textContent.includes("50 Pairs")) {
-    h2.textContent = h2.textContent.replace("50 Pairs", "100 Pairs");
-  }
-
-  console.log("✅ Heading and title updated to 100 Pairs");
-})();
-</script>
 
 
 
