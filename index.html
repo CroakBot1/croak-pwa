@@ -487,20 +487,21 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 <script>
-// ADD-ON SCRIPT: Ilis heading ug title to "100 Pairs"
+// ADD-ON SCRIPT: Update title ug heading text to "100 Pairs"
 (function(){
-  // Page title
+  // Update tab title
   document.title = document.title.replace("50 Pairs", "100 Pairs");
 
-  // Heading sa ibabaw
+  // Update <h2> heading text
   const h2 = document.querySelector("h2");
-  if(h2 && h2.textContent.includes("50 Pairs")){
+  if (h2 && h2.textContent.includes("50 Pairs")) {
     h2.textContent = h2.textContent.replace("50 Pairs", "100 Pairs");
   }
 
-  console.log("✅ Updated heading and title to 100 Pairs");
+  console.log("✅ Heading and title updated to 100 Pairs");
 })();
 </script>
+
 
 
 
