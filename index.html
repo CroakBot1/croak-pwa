@@ -490,33 +490,30 @@ observer.observe(document.body,{childList:true, subtree:true});
  *  ADD-ON: Auto Support & Resistance
  *  ============================== */
 
-// 1) Toggle state (default ON)
+// toggle state
 let showSR = true;
 
-// 2) UI control (toggle button)
+// button event listener
 document.getElementById("toggleSR").addEventListener("click", () => {
   showSR = !showSR;
-  drawChart(); // redraw chart when toggled
+  drawChart(true); // redraw chart with updated toggle
 });
 
-// 3) Core detection logic
+// detect swing highs/lows
 function detectSR(arr, lookback = 10) {
   const levels = [];
-
   for (let i = lookback; i < arr.length - lookback; i++) {
     let high = arr[i].high, low = arr[i].low;
     let isHigh = true, isLow = true;
-
     for (let j = i - lookback; j <= i + lookback; j++) {
       if (arr[j].high > high) isHigh = false;
       if (arr[j].low < low)  isLow = false;
     }
-
     if (isHigh) levels.push({ price: high, type: "resistance" });
     if (isLow)  levels.push({ price: low, type: "support" });
   }
 
-  // Deduplicate levels within ~1%
+  // deduplicate (merge levels within ~1%)
   const filtered = [];
   const range = Math.max(...arr.map(c=>c.high)) - Math.min(...arr.map(c=>c.low));
   const threshold = range * 0.01;
@@ -528,24 +525,27 @@ function detectSR(arr, lookback = 10) {
   return filtered;
 }
 
-// 4) Drawing function
+// draw support/resistance lines
 function drawSR(ctx, arr, w, h, minP, maxP, lookback = 8) {
   if (!showSR) return; // respect toggle state
 
   const levels = detectSR(arr, lookback);
+  if (levels.length === 0) return; // nothing found
+
   for (let l of levels) {
-    const y = (1-(l.price-minP)/(maxP-minP))*h;
+    const y = (1 - (l.price - minP) / (maxP - minP)) * h;
 
     ctx.beginPath();
     ctx.strokeStyle = (l.type === "support") ? "#00ff84" : "#ff4d4d";
-    ctx.setLineDash([6,4]); // dashed line style
+    ctx.setLineDash([6, 4]); // dashed line
     ctx.moveTo(0, y);
     ctx.lineTo(w, y);
     ctx.stroke();
     ctx.setLineDash([]);
 
     ctx.fillStyle = ctx.strokeStyle;
-    ctx.fillText(`${l.type[0].toUpperCase()}: ${fmt(l.price)}`, 5, y-3);
+    ctx.fillText(`${l.type[0].toUpperCase()}: ${fmt(l.price)}`, 5, y - 3);
   }
 }
 </script>
+
