@@ -486,6 +486,34 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+<script>
+// ADD-ON SCRIPT: Ilis heading ug title to "100 Pairs"
+(function(){
+  // Page title
+  document.title = document.title.replace("50 Pairs", "100 Pairs");
+
+  // Heading sa ibabaw
+  const h2 = document.querySelector("h2");
+  if(h2 && h2.textContent.includes("50 Pairs")){
+    h2.textContent = h2.textContent.replace("50 Pairs", "100 Pairs");
+  }
+
+  console.log("✅ Updated heading and title to 100 Pairs");
+})();
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
