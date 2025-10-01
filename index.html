@@ -485,67 +485,362 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 <script>
-/** ==============================
- *  ADD-ON: Auto Support & Resistance
- *  ============================== */
+const API_URL = "https://server-validation-expiry.onrender.com"; // Live server URL
 
-// toggle state
-let showSR = true;
+const loginOverlay = document.getElementById("loginOverlay");
+const warningMessage = document.getElementById("warningMessage");
+const countdownDiv = document.getElementById("countdown");
+const contentDiv = document.getElementById("content");
+const uuidInput = document.getElementById("uuidInput");
+const loginBtn = document.getElementById("loginBtn");
 
-// button event listener
-document.getElementById("toggleSR").addEventListener("click", () => {
-  showSR = !showSR;
-  drawChart(true); // redraw chart with updated toggle
-});
+let countdownInterval = null;
+let uuid = null;
+let firstLoginTimeMs = null;
 
-// detect swing highs/lows
-function detectSR(arr, lookback = 10) {
-  const levels = [];
-  for (let i = lookback; i < arr.length - lookback; i++) {
-    let high = arr[i].high, low = arr[i].low;
-    let isHigh = true, isLow = true;
-    for (let j = i - lookback; j <= i + lookback; j++) {
-      if (arr[j].high > high) isHigh = false;
-      if (arr[j].low < low)  isLow = false;
-    }
-    if (isHigh) levels.push({ price: high, type: "resistance" });
-    if (isLow)  levels.push({ price: low, type: "support" });
-  }
+// Strict UUID v4-ish regex (accepts common UUID formats)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  // deduplicate (merge levels within ~1%)
-  const filtered = [];
-  const range = Math.max(...arr.map(c=>c.high)) - Math.min(...arr.map(c=>c.low));
-  const threshold = range * 0.01;
-  for (let l of levels) {
-    if (!filtered.some(f => Math.abs(f.price - l.price) < threshold)) {
-      filtered.push(l);
-    }
-  }
-  return filtered;
+// Utility
+function setWarning(msg){ warningMessage.textContent = msg || ""; }
+function setCountdownText(txt){ countdownDiv.textContent = txt || ""; }
+function disableUI(dis){ loginBtn.disabled = dis; uuidInput.disabled = dis; }
+
+function normalizeServerTimestamp(ts){
+  // Accepts ms or seconds. If value smaller than 10^12 assume seconds.
+  if (typeof ts !== 'number') return null;
+  if (ts < 1e12) return ts * 1000;
+  return ts;
 }
 
-// draw support/resistance lines
-function drawSR(ctx, arr, w, h, minP, maxP, lookback = 8) {
-  if (!showSR) return; // respect toggle state
+function saveSession(uuidVal, expiresAtMs){
+  try{
+    const payload = { uuid: uuidVal, expiresAt: expiresAtMs };
+    sessionStorage.setItem('app_session', JSON.stringify(payload));
+  }catch(e){}
+}
+function clearSession(){
+  sessionStorage.removeItem('app_session');
+}
 
-  const levels = detectSR(arr, lookback);
-  if (levels.length === 0) return; // nothing found
+function loadSession(){
+  try{
+    const raw = sessionStorage.getItem('app_session');
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    if(data.expiresAt && Date.now() > data.expiresAt){ clearSession(); return null; }
+    return data;
+  }catch(e){ return null; }
+}
 
-  for (let l of levels) {
-    const y = (1 - (l.price - minP) / (maxP - minP)) * h;
+function startCountdown(firstLoginMs){
+  firstLoginTimeMs = firstLoginMs;
+  const oneMonthMs = 30*24*60*60*1000;
+  clearInterval(countdownInterval);
+  countdownInterval = setInterval(()=>{
+    const elapsed = Date.now() - firstLoginTimeMs;
+    const remaining = oneMonthMs - elapsed;
+    if (remaining <= 0){
+      setCountdownText("⏰ Your access has expired!");
+      clearInterval(countdownInterval);
+      logout("❌ UUID expired. Please login again.");
+      return;
+    }
+    const d = Math.floor(remaining/(1000*60*60*24));
+    const h = Math.floor((remaining%(1000*60*60*24))/(1000*60*60));
+    const m = Math.floor((remaining%(1000*60*60))/(1000*60));
+    const s = Math.floor((remaining%(1000*60))/1000);
+    setCountdownText(`⏳ Access expires in ${d}d ${h}h ${m}m ${s}s`);
+  }, 1000);
+}
 
-    ctx.beginPath();
-    ctx.strokeStyle = (l.type === "support") ? "#00ff84" : "#ff4d4d";
-    ctx.setLineDash([6, 4]); // dashed line
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.fillText(`${l.type[0].toUpperCase()}: ${fmt(l.price)}`, 5, y - 3);
+async function fetchProtectedData(){
+  if(!uuid) return;
+  try{
+    const controller = new AbortController();
+    const timeoutId = setTimeout(()=>controller.abort(), 7000);
+    const res = await fetch(`${API_URL}/secret-data`, {
+      headers: { "x-uuid": uuid },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (res.status === 401 || res.status === 403){
+      // server says no — force logout
+      logout('❌ Unauthorized. UUID invalid or expired.');
+      return;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    document.getElementById("protectedData").textContent = data.data || "No protected content.";
+  }catch(err){
+    if (err.name === 'AbortError') setWarning("❌ Request timed out. Try again.");
+    else setWarning("❌ Failed to fetch protected content.");
+    console.error(err);
   }
 }
+
+async function validateUUID(){
+  const v = uuidInput.value.trim();
+  setWarning("");
+  if (!UUID_RE.test(v)){
+    setWarning("❌ Invalid UUID format. Expected canonical UUID (8-4-4-4-12).");
+    return;
+  }
+  disableUI(true);
+  try{
+    const res = await fetch(`${API_URL}/validate-uuid`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({uuid: v}),
+    });
+    if(!res.ok){
+      const errText = await res.text().catch(()=>res.statusText);
+      setWarning(`❌ Server: ${res.status} ${errText}`);
+      disableUI(false);
+      return;
+    }
+    const data = await res.json();
+    if (data.valid){
+      // normalize firstLogin timestamps (supports seconds or ms)
+      const firstLoginMs = normalizeServerTimestamp(Number(data.firstLogin) || Date.now());
+      uuid = v;
+      loginOverlay.style.display = "none";
+      contentDiv.style.display = "block";
+      setWarning("");
+      const expiresAt = firstLoginMs + 30*24*60*60*1000;
+      saveSession(uuid, expiresAt);
+      startCountdown(firstLoginMs);
+      fetchProtectedData();
+    } else {
+      setWarning("❌ " + (data.message || 'Invalid UUID'));
+      uuid = null;
+    }
+  }catch(err){
+    console.error(err);
+    setWarning("❌ Network or server error. Try again later.");
+    uuid = null;
+  }finally{
+    disableUI(false);
+  }
+}
+
+function logout(message){
+  uuid = null;
+  firstLoginTimeMs = null;
+  clearInterval(countdownInterval);
+  clearSession();
+  loginOverlay.style.display = "flex";
+  contentDiv.style.display = "none";
+  setWarning(message || "");
+  setCountdownText("");
+  uuidInput.value = "";
+}
+
+// init from sessionStorage
+(function init(){
+  const s = loadSession();
+  if(s && s.uuid && s.expiresAt){
+    const now = Date.now();
+    if (now < s.expiresAt){
+      // attempt to use persisted uuid (UI optimistic; server will validate fetchProtectedData)
+      uuid = s.uuid;
+      loginOverlay.style.display = "none";
+      contentDiv.style.display = "block";
+      // recover approximate firstLogin (expiresAt - 30d)
+      const firstLogin = s.expiresAt - (30*24*60*60*1000);
+      startCountdown(firstLogin);
+      fetchProtectedData();
+    } else {
+      clearSession();
+    }
+  }
+})();
+
+loginBtn.addEventListener("click", validateUUID);
+uuidInput.addEventListener("keypress", e => { if (e.key === "Enter") validateUUID(); });
+
 </script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script>
+/* CONFIG (adjusted for safety) */
+const SYMBOLS = [ /* <your 50 symbols> */ ];
+const INTERVAL = '1m';
+const REST_LIMIT = 1000;
+const PRELOAD = 10000;      // safer default; change if you have server-side storage
+const MAX_STORE = 12000;
+const VISIBLE = 300;
+const FETCH_DELAY_MS = 100; // gentle throttle between batches per pair
+const DRAW_THROTTLE_MS = 250; // don't draw more often than ~4 FPS
+const MAX_CONCURRENT_FETCHES = 4;
+
+/* STATE */
+let fetchedTotal = 0;
+let fetchQueue = [];
+let runningFetches = 0;
+
+/* queue helper */
+async function queueFetch(fn){
+  return new Promise((resolve,reject)=>{
+    fetchQueue.push({fn,resolve,reject});
+    processQueue();
+  });
+}
+async function processQueue(){
+  if (runningFetches >= MAX_CONCURRENT_FETCHES) return;
+  const job = fetchQueue.shift();
+  if (!job) return;
+  runningFetches++;
+  try{
+    const r = await job.fn();
+    job.resolve(r);
+  }catch(e){ job.reject(e); }
+  runningFetches--;
+  // slight delay to avoid bursting
+  setTimeout(processQueue, 50);
+}
+
+/* safer fetchHistoryFor using queueFetch and backoff per symbol */
+async function fetchHistoryFor(sym){
+  let target = PRELOAD;
+  let fetched = 0;
+  let endTime = Date.now();
+  const st = per[sym];
+  let attempts = 0;
+  while (fetched < target){
+    await queueFetch(async ()=>{
+      const url = new URL('https://api.binance.com/api/v3/klines');
+      url.searchParams.set('symbol', sym);
+      url.searchParams.set('interval', INTERVAL);
+      url.searchParams.set('endTime', endTime);
+      url.searchParams.set('limit', REST_LIMIT);
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.json();
+      if (!Array.isArray(raw) || raw.length === 0) return { end: true, count: 0 };
+      const batch = raw.map(k=>({ time:k[0], open:+k[1], high:+k[2], low:+k[3], close:+k[4], volume:+k[5] }));
+      st.candles = batch.concat(st.candles);
+      fetched += batch.length; fetchedTotal += batch.length;
+      endTime = batch[0].time - 1;
+      st.candles = clampStore(st.candles);
+      progressEl.textContent = `Fetched: ${fetchedTotal.toLocaleString()} / ${(SYMBOLS.length*PRELOAD).toLocaleString()}`;
+      return { end: raw.length < REST_LIMIT ? true : false, count: batch.length };
+    }).then((res)=>{
+      attempts = 0;
+      // nothing more needed
+    }).catch(async (err)=>{
+      attempts++;
+      console.warn(`Fetch ${sym} attempt ${attempts} failed:`, err);
+      // exponential backoff
+      const wait = Math.min(5000, 200 * Math.pow(2, attempts));
+      await new Promise(r => setTimeout(r, wait));
+    });
+    // if loop is slow, yield
+    await sleep(FETCH_DELAY_MS);
+    if (fetched >= target) break;
+  }
+}
+
+/* WebSocket with backoff and throttled drawing */
+let ws = null;
+let wsBackoff = 1000;
+let lastDrawTs = 0;
+function startCombinedWS(){
+  if (ws) try{ ws.close(); }catch(e){}
+  const streams = SYMBOLS.map(s => `${s.toLowerCase()}@kline_${INTERVAL}`).join('/');
+  const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
+  ws = new WebSocket(url);
+
+  ws.onopen = ()=>{ liveEl.textContent = 'Live: connected'; wsBackoff = 1000; pushLog('✅ Combined WebSocket connected.'); };
+  ws.onerror = ()=>{ liveEl.textContent = 'Live: error'; pushLog('❌ WebSocket error'); };
+  ws.onclose = ()=>{ liveEl.textContent = 'Live: closed'; pushLog('⚠️ WebSocket closed. Reconnecting…'); setTimeout(startCombinedWS, wsBackoff); wsBackoff = Math.min(wsBackoff*1.8, 60_000); };
+
+  ws.onmessage = (ev) => {
+    if (livePaused) return;
+    const msg = JSON.parse(ev.data);
+    if (!msg || !msg.data || !msg.data.k) return;
+    const k = msg.data.k;
+    const sym = (msg.data.s || k.s).toUpperCase();
+    const st = per[sym]; if(!st) return;
+    const incoming = { time:k.t, open:+k.o, high:+k.h, low:+k.l, close:+k.c, volume:+k.v };
+    const arr = st.candles;
+    const last = arr[arr.length-1];
+    const sameBar = last && last.time === incoming.time;
+    if (sameBar) arr[arr.length-1] = incoming; else arr.push(incoming);
+    st.candles = clampStore(arr);
+    if (sym === active){
+      const now = Date.now();
+      if (now - lastDrawTs > DRAW_THROTTLE_MS){ lastDrawTs = now; requestAnimationFrame(()=>{ drawChart(); updateIndicators(sym); }); }
+    } else {
+      // maybe update tile spark at a lower freq
+      if (Date.now() - (st.lastSpark || 0) > 800) { st.lastSpark = Date.now(); drawSpark(sym); }
+    }
+    evaluateBuyAlert(sym);
+  };
+}
+
+/* Notification: prefer in-page toast + Notification API (no blocking alert()) */
+function toast(msg, ttl=5000){
+  const root = document.getElementById('toastRoot') || (() => {
+    const r = document.createElement('div'); r.id='toastRoot'; r.style.position='fixed'; r.style.right='12px'; r.style.bottom='12px'; r.style.zIndex=99999; document.body.appendChild(r); return r;
+  })();
+  const el = document.createElement('div'); el.textContent = msg; el.style.background='#111'; el.style.color='#cfc'; el.style.padding='8px 12px'; el.style.marginTop='8px'; el.style.border='1px solid #1f1'; el.style.borderRadius='6px'; root.appendChild(el);
+  setTimeout(()=>{ el.style.transition='opacity 300ms'; el.style.opacity=0; setTimeout(()=>el.remove(),300); }, ttl);
+}
+function notify(title, body){
+  try{
+    if (Notification && Notification.permission === 'granted') new Notification(title, { body });
+  }catch(e){}
+  // unobtrusive toast
+  toast(`${title} — ${body}`);
+}
+
+/* On startup adjust PRELOAD sanity and kick off */
+(async function main(){
+  await ensureNotify();
+  // create tiles etc (your existing UI init)
+  // Kick off preloads with queue
+  for (let i=0;i<SYMBOLS.length;i++){
+    const s = SYMBOLS[i];
+    fetchHistoryFor(s).then(()=>{ if (s===active){ updateIndicators(s); drawChart(true); } drawSpark(s); });
+    // small spacing, but concurrency limits are enforced by queueFetch
+    await sleep(80);
+  }
+  startCombinedWS();
+  setInterval(()=> updateIndicators(active), 1000);
+})();
+</script>
+
 
