@@ -649,6 +649,28 @@ ATR14: ${fmt(atr14)} | R:R=${rr}:1`;
 
 <! ---- Short entry TP/SL --->
 <script>
+// === Notification handler ===
+function notify(title, body) {
+  if ("Notification" in window) {
+    if (Notification.permission === "granted") {
+      new Notification(title, { body });
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then(permission => {
+        if (permission === "granted") {
+          new Notification(title, { body });
+        } else {
+          alert(`${title}\n\n${body}`); // fallback
+        }
+      });
+    } else {
+      alert(`${title}\n\n${body}`);
+    }
+  } else {
+    alert(`${title}\n\n${body}`);
+  }
+}
+
+// === Main trade evaluation ===
 function evaluateTradeAlert(sym){
   const arr = per[sym].candles;  
   if (arr.length < 30) return; // need data
@@ -670,31 +692,31 @@ function evaluateTradeAlert(sym){
   const [stK,stD]=Stochastic(14,view,sym);
 
   // === BUY signal rules ===
-  const trendUp = (ema14!=null&&sma14!=null) && ema14>sma14;
-  const macdBull = macd!=null && signal!=null && macd>signal && (hist||0)>0;
+  const trendUp = ema14 && sma14 && ema14>sma14;
+  const macdBull = macd && signal && macd>signal && (hist||0)>0;
   const rsiBull = (rsi14||0) >= 55;
-  const priceAboveBBmid = bbMid!=null && last.close > bbMid;
-  const psarBull = psar!=null && last.close > psar;
+  const priceAboveBBmid = bbMid && last.close > bbMid;
+  const psarBull = psar && last.close > psar;
   const adxOk = (adx14||0) >= 18;
-  const stochUp = stK!=null && stD!=null && stK > stD && stK < 85;
-  const aboveVWAP = vwap!=null && last.close > vwap;
-  const abovePivot = pivot!=null && last.close > pivot;
-  const donchianNearHigh = (dcH!=null) && (last.close > (dcH + dcL)/2);
+  const stochUp = stK && stD && stK > stD && stK < 85;
+  const aboveVWAP = vwap && last.close > vwap;
+  const abovePivot = pivot && last.close > pivot;
+  const donchianNearHigh = dcH && (last.close > (dcH + dcL)/2);
   const obvNotFalling = (obv||0) >= 0;
 
   const buyOk = trendUp && macdBull && rsiBull && priceAboveBBmid && psarBull &&
                 adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvNotFalling;
 
   // === SHORT signal rules ===
-  const trendDown = (ema14!=null&&sma14!=null) && ema14<sma14;
-  const macdBear = macd!=null && signal!=null && macd<signal && (hist||0)<0;
+  const trendDown = ema14 && sma14 && ema14<sma14;
+  const macdBear = macd && signal && macd<signal && (hist||0)<0;
   const rsiBear = (rsi14||0) <= 45;
-  const priceBelowBBmid = bbMid!=null && last.close < bbMid;
-  const psarBear = psar!=null && last.close < psar;
-  const stochDown = stK!=null && stD!=null && stK < stD && stK > 15;
-  const belowVWAP = vwap!=null && last.close < vwap;
-  const belowPivot = pivot!=null && last.close < pivot;
-  const donchianNearLow = (dcL!=null) && (last.close < (dcH + dcL)/2);
+  const priceBelowBBmid = bbMid && last.close < bbMid;
+  const psarBear = psar && last.close < psar;
+  const stochDown = stK && stD && stK < stD && stK > 15;
+  const belowVWAP = vwap && last.close < vwap;
+  const belowPivot = pivot && last.close < pivot;
+  const donchianNearLow = dcL && (last.close < (dcH + dcL)/2);
   const obvNotRising = (obv||0) <= 0;
 
   const shortOk = trendDown && macdBear && rsiBear && priceBelowBBmid && psarBear &&
@@ -730,7 +752,6 @@ function evaluateTradeAlert(sym){
       msg = `${sym} SHORT @ ${fmt(entry)}\nSL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}\nATR14: ${fmt(atr14)} | R:R=${rr}:1`;
     }
 
-    // Save trade
     per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs, type: buyOk ? "BUY" : "SHORT" };
 
     pushLog(`🔔 ${msg}`);
