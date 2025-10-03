@@ -521,3 +521,202 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+
+<!-- ADD-ON Multi-Timeframe Alerts with Full Indicators -->
+<script>
+(async function multiTFAddon(){
+  const TFs = ['1m','5m','15m'];
+  const perTF = {};
+  const PRELOAD_TF = 600;
+  const MAX_TF_STORE = 2000;
+  let wsTF = null;
+
+  // link symbols with existing 1m candles
+  SYMBOLS.forEach(s=>{
+    perTF[s] = { '1m': per[s].candles, '5m': [], '15m': [] };
+  });
+
+  function sync1mAlias(){
+    for(const s of SYMBOLS){
+      if(!perTF[s]['1m'] || perTF[s]['1m'] !== per[s].candles) perTF[s]['1m'] = per[s].candles;
+    }
+  }
+  setInterval(sync1mAlias, 1000);
+
+  async function fetchHistoryForTF(sym, tf, limit=PRELOAD_TF){
+    try{
+      const url = new URL('https://api.binance.com/api/v3/klines');
+      url.searchParams.set('symbol', sym);
+      url.searchParams.set('interval', tf);
+      url.searchParams.set('limit', limit);
+      const res = await fetch(url.toString());
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.json();
+      perTF[sym][tf] = raw.map(k=>({ time:k[0], open:+k[1], high:+k[2], low:+k[3], close:+k[4], volume:+k[5] }));
+      if(perTF[sym][tf].length > MAX_TF_STORE) perTF[sym][tf] = perTF[sym][tf].slice(-MAX_TF_STORE);
+      pushLog(`✅ ${sym} ${tf} history ${perTF[sym][tf].length} bars`);
+    }catch(e){
+      pushLog(`❌ fetch ${sym} ${tf} error: ${e.message}`);
+      console.error(e);
+    }
+  }
+
+  async function preloadTFs(){
+    for(const s of SYMBOLS){
+      await fetchHistoryForTF(s,'5m');
+      await sleep(120);
+      await fetchHistoryForTF(s,'15m');
+      await sleep(120);
+    }
+    pushLog('🔁 Multi-TF preload complete.');
+  }
+
+  function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
+  function startTFWebSocket(){
+    try{ if(wsTF) wsTF.close(); }catch(e){}
+    const streams = SYMBOLS.map(s => ['5m','15m'].map(tf => `${s.toLowerCase()}@kline_${tf}`)).flat().join('/');
+    const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
+    wsTF = new WebSocket(url);
+
+    wsTF.onopen = ()=> pushLog('✅ Multi-TF WebSocket connected (5m/15m).');
+    wsTF.onerror = (e)=> { pushLog('❌ Multi-TF WS error'); console.error(e); };
+    wsTF.onclose = ()=> { pushLog('⚠️ Multi-TF WS closed — reconnecting in 2s'); setTimeout(startTFWebSocket,2000); };
+
+    wsTF.onmessage = (ev)=>{
+      const msg = JSON.parse(ev.data);
+      if(!msg || !msg.data || !msg.data.k) return;
+      const k = msg.data.k;
+      const sym = (msg.data.s || k.s || '').toUpperCase();
+      const tf = k.i;
+      if(!sym || !perTF[sym] || !perTF[sym][tf]) return;
+
+      const incoming = { time:k.t, open:+k.o, high:+k.h, low:+k.l, close:+k.c, volume:+k.v };
+      const arr = perTF[sym][tf];
+      const last = arr[arr.length-1];
+      if(last && last.time === incoming.time) arr[arr.length-1] = incoming;
+      else arr.push(incoming);
+      if(arr.length > MAX_TF_STORE) arr.shift();
+      drawSpark(sym);
+    };
+  }
+
+  function playSound(type){
+    try{
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = type === 'BUY' ? 880 : 440;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.value = 0.15;
+      o.start();
+      setTimeout(()=>{ o.stop(); ctx.close().catch(()=>{}); }, 300);
+    }catch(e){}
+  }
+
+  // ✅ Full indicator set
+  function okBullish(arr){
+    if(!arr || arr.length < 60) return false;
+
+    const sma14   = SMA(14, arr);
+    const ema14   = EMA(14, arr);
+    const rsi14   = RSI(14, arr);
+    const cci20   = CCI(20, arr);
+    const mfi14   = MFI(14, arr);
+    const will14  = WilliamsR(14, arr);
+    const roc12   = ROC(12, arr);
+    const [tenkan, kijun] = Ichimoku(arr);
+
+    if([sma14, ema14, rsi14, cci20, mfi14, will14, roc12, tenkan, kijun].some(v => v == null)) return false;
+
+    return (ema14 > sma14) &&
+           (rsi14 > 55) &&
+           (cci20 > 100) &&
+           (mfi14 > 50) &&
+           (will14 > -20) &&
+           (roc12 > 0) &&
+           (tenkan > kijun);
+  }
+
+  function okBearish(arr){
+    if(!arr || arr.length < 60) return false;
+
+    const sma14   = SMA(14, arr);
+    const ema14   = EMA(14, arr);
+    const rsi14   = RSI(14, arr);
+    const cci20   = CCI(20, arr);
+    const mfi14   = MFI(14, arr);
+    const will14  = WilliamsR(14, arr);
+    const roc12   = ROC(12, arr);
+    const [tenkan, kijun] = Ichimoku(arr);
+
+    if([sma14, ema14, rsi14, cci20, mfi14, will14, roc12, tenkan, kijun].some(v => v == null)) return false;
+
+    return (ema14 < sma14) &&
+           (rsi14 < 45) &&
+           (cci20 < -100) &&
+           (mfi14 < 50) &&
+           (will14 < -80) &&
+           (roc12 < 0) &&
+           (tenkan < kijun);
+  }
+
+  function evaluateMultiTFAlerts(sym){
+    const arr1 = perTF[sym]['1m'];
+    const arr5 = perTF[sym]['5m'];
+    const arr15 = perTF[sym]['15m'];
+    if(!arr1 || arr1.length < 60 || !arr5 || arr5.length < 60 || !arr15 || arr15.length < 60) return;
+
+    const buy1 = okBullish(arr1.slice(-60));
+    const buy5 = okBullish(arr5.slice(-60));
+    const buy15 = okBullish(arr15.slice(-60));
+
+    const sell1 = okBearish(arr1.slice(-60));
+    const sell5 = okBearish(arr5.slice(-60));
+    const sell15 = okBearish(arr15.slice(-60));
+
+    const badge = document.getElementById(`bd_${sym}`);
+    const last1 = arr1[arr1.length-1];
+    if(buy1 && buy5 && buy15){
+      badge.textContent = 'BUY'; badge.className = 'badg buy';
+      if(per[sym].lastAlertTs !== last1.time + '_BUY'){
+        per[sym].lastAlertTs = last1.time + '_BUY';
+        const msg = `${sym} ✅ BUY aligned (1m+5m+15m) @ ${fmt(last1.close)}`;
+        pushLog(`🔔 ${msg}`);
+        notify(`BUY Alert — ${sym}`, msg);
+        playSound('BUY');
+      }
+    } else if(sell1 && sell5 && sell15){
+      badge.textContent = 'SELL'; badge.className = 'badg warn';
+      if(per[sym].lastAlertTs !== last1.time + '_SELL'){
+        per[sym].lastAlertTs = last1.time + '_SELL';
+        const msg = `${sym} ❌ SELL aligned (1m+5m+15m) @ ${fmt(last1.close)}`;
+        pushLog(`🔔 ${msg}`);
+        notify(`SELL Alert — ${sym}`, msg);
+        playSound('SELL');
+      }
+    } else {
+      badge.textContent = '—'; badge.className = 'badg';
+    }
+  }
+
+  function startEvaluationLoop(){
+    setInterval(()=>{
+      for(const s of SYMBOLS) evaluateMultiTFAlerts(s);
+    }, 1500);
+  }
+
+  window.multiTFAddon = {
+    perTF,
+    start: async ()=>{ await preloadTFs(); startTFWebSocket(); startEvaluationLoop(); await ensureNotify(); pushLog('🔁 multiTF addon started'); },
+    stop: ()=>{ try{ if(wsTF) wsTF.close(); }catch{} }
+  };
+
+  await preloadTFs();
+  startTFWebSocket();
+  startEvaluationLoop();
+  await ensureNotify();
+  pushLog('🔁 multiTF addon loaded (1m + 5m + 15m advanced alerts)');
+})();
+</script>
