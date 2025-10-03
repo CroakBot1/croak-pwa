@@ -622,3 +622,146 @@ ATR14: ${fmt(atr14)} | R:R=${rr}:1`;
 </script>
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<! ---- Short entry TP/SL --->
+<script>
+function evaluateTradeAlert(sym){
+  const arr = per[sym].candles;  
+  if (arr.length < 30) return; // need data
+  const view = arr.slice(-150);
+  const last = view[view.length-1];
+
+  // === Indicators ===
+  const sma14=SMA(14,view); const ema14=EMA(14,view);
+  const [macd,signal,hist]=MACD(view);
+  const rsi14=RSI(14,view);
+  const [bbMid,bbU,bbL]=Bollinger(20,view);
+  const atr14=ATR(14,view);
+  const [dcH,dcL]=Donchian(20,view);
+  const vwap=VWAP(view);
+  const obv=OBV(view);
+  const [pivot,s1,r1]=Pivots(last);
+  const psar=ParabolicSAR(view);
+  const adx14=ADX(14,view);
+  const [stK,stD]=Stochastic(14,view,sym);
+
+  // === BUY signal rules ===
+  const trendUp = (ema14!=null&&sma14!=null) && ema14>sma14;
+  const macdBull = macd!=null && signal!=null && macd>signal && (hist||0)>0;
+  const rsiBull = (rsi14||0) >= 55;
+  const priceAboveBBmid = bbMid!=null && last.close > bbMid;
+  const psarBull = psar!=null && last.close > psar;
+  const adxOk = (adx14||0) >= 18;
+  const stochUp = stK!=null && stD!=null && stK > stD && stK < 85;
+  const aboveVWAP = vwap!=null && last.close > vwap;
+  const abovePivot = pivot!=null && last.close > pivot;
+  const donchianNearHigh = (dcH!=null) && (last.close > (dcH + dcL)/2);
+  const obvNotFalling = (obv||0) >= 0;
+
+  const buyOk = trendUp && macdBull && rsiBull && priceAboveBBmid && psarBull &&
+                adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvNotFalling;
+
+  // === SHORT signal rules ===
+  const trendDown = (ema14!=null&&sma14!=null) && ema14<sma14;
+  const macdBear = macd!=null && signal!=null && macd<signal && (hist||0)<0;
+  const rsiBear = (rsi14||0) <= 45;
+  const priceBelowBBmid = bbMid!=null && last.close < bbMid;
+  const psarBear = psar!=null && last.close < psar;
+  const stochDown = stK!=null && stD!=null && stK < stD && stK > 15;
+  const belowVWAP = vwap!=null && last.close < vwap;
+  const belowPivot = pivot!=null && last.close < pivot;
+  const donchianNearLow = (dcL!=null) && (last.close < (dcH + dcL)/2);
+  const obvNotRising = (obv||0) <= 0;
+
+  const shortOk = trendDown && macdBear && rsiBear && priceBelowBBmid && psarBear &&
+                  adxOk && stochDown && belowVWAP && belowPivot && donchianNearLow && obvNotRising;
+
+  // === Update badge on tile ===
+  const badge = document.getElementById(`bd_${sym}`);
+  if (buyOk){ badge.textContent = 'BUY'; badge.className = 'badg buy'; }
+  else if (shortOk){ badge.textContent = 'SHORT'; badge.className = 'badg short'; }
+  else { badge.textContent = '—'; badge.className = 'badg'; }
+
+  // === Trade Alert setup ===
+  const lastTs = per[sym].lastAlertTs || 0;
+  const candleTs = last.time;
+
+  if ((buyOk || shortOk) && candleTs !== lastTs){
+    per[sym].lastAlertTs = candleTs;
+
+    const entry = last.close;
+    const rr = 2;        // Risk:Reward ratio
+    const atrMult = 1.5; // ATR multiplier for SL distance
+    let stopLoss, takeProfit, msg;
+
+    if (buyOk){
+      stopLoss = entry - (atrMult * atr14);
+      takeProfit = entry + (rr * (entry - stopLoss));
+      msg = `${sym} BUY @ ${fmt(entry)}\nSL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}\nATR14: ${fmt(atr14)} | R:R=${rr}:1`;
+    }
+
+    if (shortOk){
+      stopLoss = entry + (atrMult * atr14);
+      takeProfit = entry - (rr * (stopLoss - entry));
+      msg = `${sym} SHORT @ ${fmt(entry)}\nSL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}\nATR14: ${fmt(atr14)} | R:R=${rr}:1`;
+    }
+
+    // Save trade
+    per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs, type: buyOk ? "BUY" : "SHORT" };
+
+    pushLog(`🔔 ${msg}`);
+    notify(`${sym} ${buyOk ? "BUY" : "SHORT"} Alert`, msg);
+  }
+
+  // === Monitor open trade for TP/SL hit ===
+  const trade = per[sym].lastTrade;
+  if (trade){
+    if (trade.type === "BUY"){
+      if (last.low <= trade.stopLoss){
+        pushLog(`❌ ${sym} Stop Loss hit (BUY) @ ${fmt(trade.stopLoss)}`);
+        notify(`${sym} STOP LOSS`, `Hit @ ${fmt(trade.stopLoss)}`);
+        per[sym].lastTrade = null;
+      } else if (last.high >= trade.takeProfit){
+        pushLog(`✅ ${sym} Take Profit hit (BUY) @ ${fmt(trade.takeProfit)}`);
+        notify(`${sym} TAKE PROFIT`, `Hit @ ${fmt(trade.takeProfit)}`);
+        per[sym].lastTrade = null;
+      }
+    }
+    if (trade.type === "SHORT"){
+      if (last.high >= trade.stopLoss){
+        pushLog(`❌ ${sym} Stop Loss hit (SHORT) @ ${fmt(trade.stopLoss)}`);
+        notify(`${sym} STOP LOSS`, `Hit @ ${fmt(trade.stopLoss)}`);
+        per[sym].lastTrade = null;
+      } else if (last.low <= trade.takeProfit){
+        pushLog(`✅ ${sym} Take Profit hit (SHORT) @ ${fmt(trade.takeProfit)}`);
+        notify(`${sym} TAKE PROFIT`, `Hit @ ${fmt(trade.takeProfit)}`);
+        per[sym].lastTrade = null;
+      }
+    }
+  }
+}
+</script>
