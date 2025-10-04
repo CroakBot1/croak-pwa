@@ -783,50 +783,42 @@ function evaluateSellAlert(sym){
 
 
 
+<!----- play button para mo run ang websocket og preload api --->
 <script>
-const API_URL = "https://server-validation-expiry.onrender.com";
+// Grab elements
+const startWrapper = document.getElementById('startWrapper');
+const startBtn = document.getElementById('startBtn');
 
-// ===== Elements =====
-const loginOverlay = document.getElementById("loginOverlay");
-const warningMessage = document.getElementById("warningMessage");
-const countdownDiv = document.getElementById("countdown");
-const contentDiv = document.getElementById("content");
+// Make the button visually huge and animated
+startBtn.style.fontSize = '36px';
+startBtn.style.padding = '30px 60px';
+startBtn.style.borderRadius = '20px';
+startBtn.style.background = 'linear-gradient(90deg, #00ffff, #00ff84)';
+startBtn.style.border = '3px solid #ffffff';
+startBtn.style.color = '#000';
+startBtn.style.fontWeight = 'bold';
+startBtn.style.boxShadow = '0 0 20px #00ffff, 0 0 40px #00ff84';
+startBtn.style.transition = 'all 0.3s ease';
+startBtn.onmouseover = () => {
+  startBtn.style.transform = 'scale(1.1)';
+  startBtn.style.boxShadow = '0 0 30px #00ffff, 0 0 60px #00ff84';
+};
+startBtn.onmouseleave = () => {
+  startBtn.style.transform = 'scale(1)';
+  startBtn.style.boxShadow = '0 0 20px #00ffff, 0 0 40px #00ff84';
+};
 
-const tiles = document.getElementById('tiles');
-const chartWrap = document.getElementById('chartWrap');
-const outputEl = document.getElementById('output');
-const panelEl = document.getElementById('panel');
-
-let uuid = null;
-let countdownInterval = null;
-let firstLoginTime = null;
-
-// ===== Countdown Timer =====
-function startCountdown(firstLogin){
-  firstLoginTime = firstLogin;
-  const oneMonth = 30*24*60*60*1000;
-  clearInterval(countdownInterval);
-  countdownInterval = setInterval(()=>{
-    const remaining = oneMonth - (Date.now() - firstLoginTime);
-    if(remaining <= 0){
-      countdownDiv.textContent = "⏰ Your access has expired!";
-      clearInterval(countdownInterval);
-      loginOverlay.style.display = "flex";
-      contentDiv.style.display = "none";
-      tiles.style.display = chartWrap.style.display = outputEl.style.display = panelEl.style.display = "none";
-      warningMessage.textContent = "❌ UUID expired. Please login again.";
-      uuid = null;
-      return;
-    }
-    const days = Math.floor(remaining/(1000*60*60*24));
-    const hours = Math.floor((remaining%(1000*60*60*24))/(1000*60*60));
-    const minutes = Math.floor((remaining%(1000*60*60))/(1000*60));
-    const seconds = Math.floor((remaining%(1000*60))/1000);
-    countdownDiv.textContent = `⏳ Access expires in ${days}d ${hours}h ${minutes}m ${seconds}s`;
-  },1000);
+// Function to start preloading and WebSocket
+async function startApp() {
+  startBtn.disabled = true;
+  startBtn.textContent = '⏳ Loading…';
+  await preloadAll();       // load historical data
+  startCombinedWS();        // start live WebSocket
+  setInterval(()=> updateIndicators(active), 1000);
+  startWrapper.style.display = 'none'; // hide after launch
 }
 
-// ===== Validate UUID =====
+// Show start button after successful UUID validation
 async function validateUUID(){
   uuid = document.getElementById("uuidInput").value.trim();
   if(!uuid.match(/^[0-9a-fA-F-]{36}$/)){
@@ -835,9 +827,9 @@ async function validateUUID(){
   }
   try{
     const res = await fetch(`${API_URL}/validate-uuid`, {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({uuid})
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({uuid})
     });
     const data = await res.json();
     if(data.valid){
@@ -846,9 +838,11 @@ async function validateUUID(){
       warningMessage.textContent="";
       startCountdown(data.firstLogin);
       fetchProtectedData();
-      startDashboard(); // <=== Start the dashboard only after login
-    } else {
-      warningMessage.textContent="❌ "+data.message;
+
+      // Show the big flashy start button
+      startWrapper.style.display = 'block';
+    }else{
+      warningMessage.textContent="❌ " + data.message;
       uuid = null;
     }
   }catch(err){
@@ -858,35 +852,13 @@ async function validateUUID(){
   }
 }
 
-document.getElementById("loginBtn").onclick = validateUUID;
-document.getElementById("uuidInput").addEventListener("keypress", e=>{
-  if(e.key==="Enter") validateUUID();
+// Attach click listener
+startBtn.onclick = startApp;
+
+// Also keep Enter key login functional
+document.getElementById("uuidInput").addEventListener("keypress", e => {
+  if(e.key === "Enter") validateUUID();
 });
-
-// ===== Fetch protected content =====
-async function fetchProtectedData(){
-  if(!uuid) return;
-  try{
-    const res = await fetch(`${API_URL}/secret-data`, { headers:{"x-uuid":uuid} });
-    const data = await res.json();
-    if(data.data) document.getElementById("protectedData").textContent = data.data;
-  }catch(err){
-    document.getElementById("protectedData").textContent="❌ Failed to fetch protected content.";
-    console.error(err);
-  }
-}
-
-// ===== Dashboard Starter =====
-async function startDashboard(){
-  if(!uuid) return; // Security gate
-  tiles.style.display='grid';
-  chartWrap.style.display='block';
-  outputEl.style.display='block';
-  panelEl.style.display='block';
-
-  await ensureNotify();
-  await preloadAll();     // Main script preload
-  startCombinedWS();      // Start WS updates
-  setInterval(()=>updateIndicators(active),1000);
-}
+document.getElementById("loginBtn").onclick = validateUUID;
 </script>
+
