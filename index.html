@@ -647,142 +647,100 @@ ATR14: ${fmt(atr14)} | R:R=${rr}:1`;
 
 
 
-<! ---- Short entry TP/SL --->
+ <!-- TP/SL Short Entry Script (Single-line Popup) -->
 <script>
-// === Notification handler ===
-function notify(title, body) {
-  if ("Notification" in window) {
-    if (Notification.permission === "granted") {
-      new Notification(title, { body });
-    } else if (Notification.permission !== "denied") {
-      Notification.requestPermission().then(permission => {
-        if (permission === "granted") {
-          new Notification(title, { body });
-        } else {
-          alert(`${title}\n\n${body}`); // fallback
-        }
-      });
-    } else {
-      alert(`${title}\n\n${body}`);
-    }
-  } else {
-    alert(`${title}\n\n${body}`);
-  }
-}
-
-// === Main trade evaluation ===
-function evaluateTradeAlert(sym){
+function evaluateSellAlert(sym){
   const arr = per[sym].candles;  
   if (arr.length < 30) return; // need data
   const view = arr.slice(-150);
   const last = view[view.length-1];
 
   // === Indicators ===
-  const sma14=SMA(14,view); const ema14=EMA(14,view);
-  const [macd,signal,hist]=MACD(view);
-  const rsi14=RSI(14,view);
-  const [bbMid,bbU,bbL]=Bollinger(20,view);
-  const atr14=ATR(14,view);
-  const [dcH,dcL]=Donchian(20,view);
-  const vwap=VWAP(view);
-  const obv=OBV(view);
-  const [pivot,s1,r1]=Pivots(last);
-  const psar=ParabolicSAR(view);
-  const adx14=ADX(14,view);
-  const [stK,stD]=Stochastic(14,view,sym);
+  const sma14 = SMA(14, view); 
+  const ema14 = EMA(14, view);
+  const [macd, signal, hist] = MACD(view);
+  const rsi14 = RSI(14, view);
+  const [bbMid, bbU, bbL] = Bollinger(20, view);
+  const atr14 = ATR(14, view);
+  const [dcH, dcL] = Donchian(20, view);
+  const vwap = VWAP(view);
+  const obv = OBV(view);
+  const [pivot, s1, r1] = Pivots(last);
+  const psar = ParabolicSAR(view);
+  const adx14 = ADX(14, view);
+  const [stK, stD] = Stochastic(14, view, sym);
 
-  // === BUY signal rules ===
-  const trendUp = ema14 && sma14 && ema14>sma14;
-  const macdBull = macd && signal && macd>signal && (hist||0)>0;
-  const rsiBull = (rsi14||0) >= 55;
-  const priceAboveBBmid = bbMid && last.close > bbMid;
-  const psarBull = psar && last.close > psar;
-  const adxOk = (adx14||0) >= 18;
-  const stochUp = stK && stD && stK > stD && stK < 85;
-  const aboveVWAP = vwap && last.close > vwap;
-  const abovePivot = pivot && last.close > pivot;
-  const donchianNearHigh = dcH && (last.close > (dcH + dcL)/2);
-  const obvNotFalling = (obv||0) >= 0;
+  // === SELL signal rules ===
+  const trendDown = (ema14 != null && sma14 != null) && ema14 < sma14;
+  const macdBear = macd != null && signal != null && macd < signal && (hist || 0) < 0;
+  const rsiBear = (rsi14 || 0) <= 45;
+  const priceBelowBBmid = bbMid != null && last.close < bbMid;
+  const psarBear = psar != null && last.close < psar;
+  const adxOk = (adx14 || 0) >= 18;
+  const stochDown = stK != null && stD != null && stK < stD && stK > 15;
+  const belowVWAP = vwap != null && last.close < vwap;
+  const belowPivot = pivot != null && last.close < pivot;
+  const donchianNearLow = (dcL != null) && (last.close < (dcH + dcL)/2);
+  const obvNotRising = (obv || 0) <= 0;
 
-  const buyOk = trendUp && macdBull && rsiBull && priceAboveBBmid && psarBull &&
-                adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvNotFalling;
-
-  // === SHORT signal rules ===
-  const trendDown = ema14 && sma14 && ema14<sma14;
-  const macdBear = macd && signal && macd<signal && (hist||0)<0;
-  const rsiBear = (rsi14||0) <= 45;
-  const priceBelowBBmid = bbMid && last.close < bbMid;
-  const psarBear = psar && last.close < psar;
-  const stochDown = stK && stD && stK < stD && stK > 15;
-  const belowVWAP = vwap && last.close < vwap;
-  const belowPivot = pivot && last.close < pivot;
-  const donchianNearLow = dcL && (last.close < (dcH + dcL)/2);
-  const obvNotRising = (obv||0) <= 0;
-
-  const shortOk = trendDown && macdBear && rsiBear && priceBelowBBmid && psarBear &&
-                  adxOk && stochDown && belowVWAP && belowPivot && donchianNearLow && obvNotRising;
+  const ok = trendDown && macdBear && rsiBear && priceBelowBBmid && psarBear &&
+             adxOk && stochDown && belowVWAP && belowPivot && donchianNearLow && obvNotRising;
 
   // === Update badge on tile ===
   const badge = document.getElementById(`bd_${sym}`);
-  if (buyOk){ badge.textContent = 'BUY'; badge.className = 'badg buy'; }
-  else if (shortOk){ badge.textContent = 'SHORT'; badge.className = 'badg short'; }
+  if (ok){ badge.textContent = 'SELL'; badge.className = 'badg sell'; }
   else { badge.textContent = '—'; badge.className = 'badg'; }
 
-  // === Trade Alert setup ===
+  // === SELL ALERT + TP/SL SETUP ===
   const lastTs = per[sym].lastAlertTs || 0;
   const candleTs = last.time;
-
-  if ((buyOk || shortOk) && candleTs !== lastTs){
+  if (ok && candleTs !== lastTs){
     per[sym].lastAlertTs = candleTs;
 
     const entry = last.close;
-    const rr = 2;        // Risk:Reward ratio
-    const atrMult = 1.5; // ATR multiplier for SL distance
-    let stopLoss, takeProfit, msg;
 
-    if (buyOk){
-      stopLoss = entry - (atrMult * atr14);
-      takeProfit = entry + (rr * (entry - stopLoss));
-      msg = `${sym} BUY @ ${fmt(entry)}\nSL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}\nATR14: ${fmt(atr14)} | R:R=${rr}:1`;
-    }
+    // === ATR-based TP/SL with fallback to indicator levels ===
+    const rr = 2;          
+    const atrMult = 1.5;   
 
-    if (shortOk){
+    let stopLoss = psar || dcH || bbU;
+    let takeProfit = dcL || bbL || s1;
+
+    if (!stopLoss || Math.abs(stopLoss - entry) < atrMult * atr14) {
       stopLoss = entry + (atrMult * atr14);
-      takeProfit = entry - (rr * (stopLoss - entry));
-      msg = `${sym} SHORT @ ${fmt(entry)}\nSL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}\nATR14: ${fmt(atr14)} | R:R=${rr}:1`;
     }
 
-    per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs, type: buyOk ? "BUY" : "SHORT" };
+    const risk = stopLoss - entry;
+    let targetTP = entry - (rr * risk);
 
+    if (takeProfit && takeProfit < entry && takeProfit < targetTP) {
+      targetTP = takeProfit;
+    }
+
+    takeProfit = targetTP;
+
+    // Save trade
+    per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs };
+
+    // === Single-line popup message ===
+    const msg = `${sym} SHORT @ ${fmt(entry)} | SL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}`;
     pushLog(`🔔 ${msg}`);
-    notify(`${sym} ${buyOk ? "BUY" : "SHORT"} Alert`, msg);
+    notify(`SHORT Alert — ${sym}`, msg);
   }
 
   // === Monitor open trade for TP/SL hit ===
   const trade = per[sym].lastTrade;
   if (trade){
-    if (trade.type === "BUY"){
-      if (last.low <= trade.stopLoss){
-        pushLog(`❌ ${sym} Stop Loss hit (BUY) @ ${fmt(trade.stopLoss)}`);
-        notify(`${sym} STOP LOSS`, `Hit @ ${fmt(trade.stopLoss)}`);
-        per[sym].lastTrade = null;
-      } else if (last.high >= trade.takeProfit){
-        pushLog(`✅ ${sym} Take Profit hit (BUY) @ ${fmt(trade.takeProfit)}`);
-        notify(`${sym} TAKE PROFIT`, `Hit @ ${fmt(trade.takeProfit)}`);
-        per[sym].lastTrade = null;
-      }
-    }
-    if (trade.type === "SHORT"){
-      if (last.high >= trade.stopLoss){
-        pushLog(`❌ ${sym} Stop Loss hit (SHORT) @ ${fmt(trade.stopLoss)}`);
-        notify(`${sym} STOP LOSS`, `Hit @ ${fmt(trade.stopLoss)}`);
-        per[sym].lastTrade = null;
-      } else if (last.low <= trade.takeProfit){
-        pushLog(`✅ ${sym} Take Profit hit (SHORT) @ ${fmt(trade.takeProfit)}`);
-        notify(`${sym} TAKE PROFIT`, `Hit @ ${fmt(trade.takeProfit)}`);
-        per[sym].lastTrade = null;
-      }
+    if (last.high >= trade.stopLoss){
+      pushLog(`❌ ${sym} Stop Loss hit @ ${fmt(trade.stopLoss)}`);
+      notify(`${sym} STOP LOSS`, `Hit @ ${fmt(trade.stopLoss)}`);
+      per[sym].lastTrade = null;
+    } else if (last.low <= trade.takeProfit){
+      pushLog(`✅ ${sym} Take Profit hit @ ${fmt(trade.takeProfit)}`);
+      notify(`${sym} TAKE PROFIT`, `Hit @ ${fmt(trade.takeProfit)}`);
+      per[sym].lastTrade = null;
     }
   }
 }
 </script>
+
