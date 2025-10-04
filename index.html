@@ -790,46 +790,22 @@ function evaluateSellAlert(sym){
 
 
 
-<!----- websocket starter ----->
+
+<!---- no pop allowed ----->
 <script>
-// ================================
-// WebSocket Starter Script
-// ================================
+// Save original alert function
+const originalAlert = window.alert;
 
-// Imong existing functions
-async function preloadAll(){
-  // ... existing preload code ...
-}
-
-function startCombinedWS(){
-  // ... existing WebSocket code ...
-}
-
-// ================================
-// Optional notification setup
-// ================================
-async function ensureNotify(){
-  try{ if (Notification && Notification.permission === 'default') await Notification.requestPermission(); }catch{}
-}
-
-// ================================
-// Main kickoff function
-// ================================
-async function startLive(){
-  await ensureNotify();
-  await preloadAll();
-  startCombinedWS();
-  setInterval(()=> updateIndicators(active), 1000);
-}
-
-// ================================
-// Button to trigger live
-// ================================
-const btnStart = document.createElement('button');
-btnStart.textContent = '🚀 Start Live';
-btnStart.style.padding = '10px 20px';
-btnStart.style.fontSize = '16px';
-btnStart.onclick = startLive;
-document.body.insertBefore(btnStart, document.body.firstChild); // insert sa taas
+// Override alert
+window.alert = function(message) {
+  const loginOverlay = document.getElementById('loginOverlay');
+  // Only suppress alert if overlay is still visible
+  if (loginOverlay && loginOverlay.style.display !== 'none') {
+    console.warn('Alert suppressed due to active login overlay:', message);
+    return; // do nothing
+  }
+  // Otherwise, show alert normally
+  originalAlert(message);
+};
 </script>
 
