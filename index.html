@@ -785,49 +785,51 @@ function evaluateSellAlert(sym){
 
 
 
+
+
+
+
+
+<!----- websocket starter ----->
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-  const startWrapper = document.getElementById('startWrapper');
-  const startBtn = document.getElementById('startBtn');
+// ================================
+// WebSocket Starter Script
+// ================================
 
-  if (!startBtn) return; // safety check
+// Imong existing functions
+async function preloadAll(){
+  // ... existing preload code ...
+}
 
-  // Make the button visually huge and animated
-  startBtn.style.fontSize = '36px';
-  startBtn.style.padding = '30px 60px';
-  startBtn.style.borderRadius = '20px';
-  startBtn.style.background = 'linear-gradient(90deg, #00ffff, #00ff84)';
-  startBtn.style.border = '3px solid #ffffff';
-  startBtn.style.color = '#000';
-  startBtn.style.fontWeight = 'bold';
-  startBtn.style.boxShadow = '0 0 20px #00ffff, 0 0 40px #00ff84';
-  startBtn.style.transition = 'all 0.3s ease';
-  startBtn.onmouseover = () => {
-    startBtn.style.transform = 'scale(1.1)';
-    startBtn.style.boxShadow = '0 0 30px #00ffff, 0 0 60px #00ff84';
-  };
-  startBtn.onmouseleave = () => {
-    startBtn.style.transform = 'scale(1)';
-    startBtn.style.boxShadow = '0 0 20px #00ffff, 0 0 40px #00ff84';
-  };
+function startCombinedWS(){
+  // ... existing WebSocket code ...
+}
 
-  // Function to start preloading and WebSocket
-  async function startApp() {
-    startBtn.disabled = true;
-    startBtn.textContent = '⏳ Loading…';
-    await preloadAll();       // load historical data
-    startCombinedWS();        // start live WebSocket
-    setInterval(()=> updateIndicators(active), 1000);
-    startWrapper.style.display = 'none'; // hide after launch
-  }
+// ================================
+// Optional notification setup
+// ================================
+async function ensureNotify(){
+  try{ if (Notification && Notification.permission === 'default') await Notification.requestPermission(); }catch{}
+}
 
-  // Attach click listener
-  startBtn.onclick = startApp;
+// ================================
+// Main kickoff function
+// ================================
+async function startLive(){
+  await ensureNotify();
+  await preloadAll();
+  startCombinedWS();
+  setInterval(()=> updateIndicators(active), 1000);
+}
 
-  // Also keep Enter key login functional
-  document.getElementById("uuidInput").addEventListener("keypress", e => {
-    if(e.key === "Enter") validateUUID();
-  });
-  document.getElementById("loginBtn").onclick = validateUUID;
-});
+// ================================
+// Button to trigger live
+// ================================
+const btnStart = document.createElement('button');
+btnStart.textContent = '🚀 Start Live';
+btnStart.style.padding = '10px 20px';
+btnStart.style.fontSize = '16px';
+btnStart.onclick = startLive;
+document.body.insertBefore(btnStart, document.body.firstChild); // insert sa taas
 </script>
+
