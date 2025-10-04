@@ -782,17 +782,17 @@ function evaluateSellAlert(sym){
 
 
 
-<!------ Dili mo run ang system kong dili ma validate ang Uuid Log in ---->
-<script>
-const API_URL = "https://server-validation-expiry.onrender.com"; // Your server URL
 
-// Elements
+<script>
+const API_URL = "https://server-validation-expiry.onrender.com";
+
+// ===== Elements =====
 const loginOverlay = document.getElementById("loginOverlay");
 const warningMessage = document.getElementById("warningMessage");
 const countdownDiv = document.getElementById("countdown");
 const contentDiv = document.getElementById("content");
-const dashboardLock = document.getElementById("dashboardLock");
-const tilesDiv = document.getElementById('tiles');
+
+const tiles = document.getElementById('tiles');
 const chartWrap = document.getElementById('chartWrap');
 const outputEl = document.getElementById('output');
 const panelEl = document.getElementById('panel');
@@ -801,52 +801,20 @@ let uuid = null;
 let countdownInterval = null;
 let firstLoginTime = null;
 
-// Trading Dashboard State
-let SYMBOLS = [
-  'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','DOGEUSDT','TRXUSDT','MATICUSDT','DOTUSDT',
-  'LTCUSDT','BCHUSDT','LINKUSDT','ATOMUSDT','AVAXUSDT','XLMUSDT','ETCUSDT','FILUSDT','ICPUSDT','NEARUSDT',
-  'APTUSDT','ARBUSDT','OPUSDT','SUIUSDT','SEIUSDT','PEPEUSDT','SHIBUSDT','FTMUSDT','ALGOUSDT','AAVEUSDT',
-  'UNIUSDT','TONUSDT','MKRUSDT','INJUSDT','IMXUSDT','RUNEUSDT','SNXUSDT','GMXUSDT','DYDXUSDT','EGLDUSDT',
-  'EOSUSDT','STXUSDT','GRTUSDT','SANDUSDT','MANAUSDT','AXSUSDT','CHZUSDT','ENJUSDT','CFXUSDT','QTUMUSDT'
-];
-const INTERVAL = '1m';
-const PRELOAD = 50000;
-const STORE_ALL = false;
-const MAX_STORE = 12000;
-const VISIBLE = 300;
-const FETCH_DELAY_MS = 30;
-const DRAW_EVERY = 200;
-
-let active = SYMBOLS[0];
-let livePaused = false;
-let fetchedTotal = 0;
-let ws = null;
-const per = {}; // per-symbol state
-
-SYMBOLS.forEach(s=>{
-  per[s] = { candles:[], lastAlertTs:0, lastWsCandleTs:0 };
-});
-
-// Utility
-const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
-const fmt = (n,d=2)=>(n==null||Number.isNaN(n))?'⏳':Number(n).toFixed(d);
-const pushLog = (s)=>{ outputEl.textContent = s+"\n"+outputEl.textContent; };
-const clampStore = (arr)=>{ if(!STORE_ALL && arr.length>MAX_STORE) return arr.slice(-MAX_STORE); return arr; };
-
-// ==========================
-// Countdown Timer
-// ==========================
+// ===== Countdown Timer =====
 function startCountdown(firstLogin){
   firstLoginTime = firstLogin;
   const oneMonth = 30*24*60*60*1000;
   clearInterval(countdownInterval);
   countdownInterval = setInterval(()=>{
     const remaining = oneMonth - (Date.now() - firstLoginTime);
-    if(remaining<=0){
+    if(remaining <= 0){
       countdownDiv.textContent = "⏰ Your access has expired!";
       clearInterval(countdownInterval);
       loginOverlay.style.display = "flex";
-      dashboardLock.style.display = "block";
+      contentDiv.style.display = "none";
+      tiles.style.display = chartWrap.style.display = outputEl.style.display = panelEl.style.display = "none";
+      warningMessage.textContent = "❌ UUID expired. Please login again.";
       uuid = null;
       return;
     }
@@ -858,9 +826,7 @@ function startCountdown(firstLogin){
   },1000);
 }
 
-// ==========================
-// UUID Validation
-// ==========================
+// ===== Validate UUID =====
 async function validateUUID(){
   uuid = document.getElementById("uuidInput").value.trim();
   if(!uuid.match(/^[0-9a-fA-F-]{36}$/)){
@@ -876,11 +842,11 @@ async function validateUUID(){
     const data = await res.json();
     if(data.valid){
       loginOverlay.style.display="none";
-      dashboardLock.style.display = "none";
+      contentDiv.style.display="block";
       warningMessage.textContent="";
       startCountdown(data.firstLogin);
       fetchProtectedData();
-      startDashboard();
+      startDashboard(); // <=== Start the dashboard only after login
     } else {
       warningMessage.textContent="❌ "+data.message;
       uuid = null;
@@ -892,15 +858,12 @@ async function validateUUID(){
   }
 }
 
-// Event listeners
 document.getElementById("loginBtn").onclick = validateUUID;
 document.getElementById("uuidInput").addEventListener("keypress", e=>{
   if(e.key==="Enter") validateUUID();
 });
 
-// ==========================
-// Fetch protected content
-// ==========================
+// ===== Fetch protected content =====
 async function fetchProtectedData(){
   if(!uuid) return;
   try{
@@ -913,40 +876,17 @@ async function fetchProtectedData(){
   }
 }
 
-// ==========================
-// Dashboard Starter
-// ==========================
+// ===== Dashboard Starter =====
 async function startDashboard(){
-  if(!uuid) return;
-  tilesDiv.style.display='grid';
+  if(!uuid) return; // Security gate
+  tiles.style.display='grid';
   chartWrap.style.display='block';
   outputEl.style.display='block';
   panelEl.style.display='block';
 
   await ensureNotify();
-  await preloadAll();
-  startCombinedWS();
+  await preloadAll();     // Main script preload
+  startCombinedWS();      // Start WS updates
   setInterval(()=>updateIndicators(active),1000);
 }
-
-// ==========================
-// Notifications
-// ==========================
-async function ensureNotify(){ try{ if(Notification && Notification.permission==='default') await Notification.requestPermission(); }catch{} }
-function notify(title,body){ try{ if(Notification && Notification.permission==='granted') new Notification(title,{body}); }catch{} try{ alert(`${title}\n${body}`);}catch{} }
-
-// ==========================
-// Preload, WebSocket, Indicators, Buy Alerts
-// ==========================
-// Include all your existing functions here:
-// - preloadAll()
-// - fetchHistoryFor()
-// - startCombinedWS()
-// - drawChart()
-// - drawSpark()
-// - SMA, EMA, MACD, RSI, etc.
-// - updateIndicators()
-// - evaluateBuyAlert()
-// Remember: add `if(!uuid) return;` at the start of each to prevent running pre-login
-
 </script>
