@@ -783,82 +783,51 @@ function evaluateSellAlert(sym){
 
 
 
-<!----- play button para mo run ang websocket og preload api --->
+
+
 <script>
-// Grab elements
-const startWrapper = document.getElementById('startWrapper');
-const startBtn = document.getElementById('startBtn');
+document.addEventListener('DOMContentLoaded', () => {
+  const startWrapper = document.getElementById('startWrapper');
+  const startBtn = document.getElementById('startBtn');
 
-// Make the button visually huge and animated
-startBtn.style.fontSize = '36px';
-startBtn.style.padding = '30px 60px';
-startBtn.style.borderRadius = '20px';
-startBtn.style.background = 'linear-gradient(90deg, #00ffff, #00ff84)';
-startBtn.style.border = '3px solid #ffffff';
-startBtn.style.color = '#000';
-startBtn.style.fontWeight = 'bold';
-startBtn.style.boxShadow = '0 0 20px #00ffff, 0 0 40px #00ff84';
-startBtn.style.transition = 'all 0.3s ease';
-startBtn.onmouseover = () => {
-  startBtn.style.transform = 'scale(1.1)';
-  startBtn.style.boxShadow = '0 0 30px #00ffff, 0 0 60px #00ff84';
-};
-startBtn.onmouseleave = () => {
-  startBtn.style.transform = 'scale(1)';
+  if (!startBtn) return; // safety check
+
+  // Make the button visually huge and animated
+  startBtn.style.fontSize = '36px';
+  startBtn.style.padding = '30px 60px';
+  startBtn.style.borderRadius = '20px';
+  startBtn.style.background = 'linear-gradient(90deg, #00ffff, #00ff84)';
+  startBtn.style.border = '3px solid #ffffff';
+  startBtn.style.color = '#000';
+  startBtn.style.fontWeight = 'bold';
   startBtn.style.boxShadow = '0 0 20px #00ffff, 0 0 40px #00ff84';
-};
+  startBtn.style.transition = 'all 0.3s ease';
+  startBtn.onmouseover = () => {
+    startBtn.style.transform = 'scale(1.1)';
+    startBtn.style.boxShadow = '0 0 30px #00ffff, 0 0 60px #00ff84';
+  };
+  startBtn.onmouseleave = () => {
+    startBtn.style.transform = 'scale(1)';
+    startBtn.style.boxShadow = '0 0 20px #00ffff, 0 0 40px #00ff84';
+  };
 
-// Function to start preloading and WebSocket
-async function startApp() {
-  startBtn.disabled = true;
-  startBtn.textContent = '⏳ Loading…';
-  await preloadAll();       // load historical data
-  startCombinedWS();        // start live WebSocket
-  setInterval(()=> updateIndicators(active), 1000);
-  startWrapper.style.display = 'none'; // hide after launch
-}
-
-// Show start button after successful UUID validation
-async function validateUUID(){
-  uuid = document.getElementById("uuidInput").value.trim();
-  if(!uuid.match(/^[0-9a-fA-F-]{36}$/)){
-    warningMessage.textContent="❌ Invalid UUID format!";
-    return;
+  // Function to start preloading and WebSocket
+  async function startApp() {
+    startBtn.disabled = true;
+    startBtn.textContent = '⏳ Loading…';
+    await preloadAll();       // load historical data
+    startCombinedWS();        // start live WebSocket
+    setInterval(()=> updateIndicators(active), 1000);
+    startWrapper.style.display = 'none'; // hide after launch
   }
-  try{
-    const res = await fetch(`${API_URL}/validate-uuid`, {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({uuid})
-    });
-    const data = await res.json();
-    if(data.valid){
-      loginOverlay.style.display="none";
-      contentDiv.style.display="block";
-      warningMessage.textContent="";
-      startCountdown(data.firstLogin);
-      fetchProtectedData();
 
-      // Show the big flashy start button
-      startWrapper.style.display = 'block';
-    }else{
-      warningMessage.textContent="❌ " + data.message;
-      uuid = null;
-    }
-  }catch(err){
-    warningMessage.textContent="❌ Server error. Try again later.";
-    console.error(err);
-    uuid = null;
-  }
-}
+  // Attach click listener
+  startBtn.onclick = startApp;
 
-// Attach click listener
-startBtn.onclick = startApp;
-
-// Also keep Enter key login functional
-document.getElementById("uuidInput").addEventListener("keypress", e => {
-  if(e.key === "Enter") validateUUID();
+  // Also keep Enter key login functional
+  document.getElementById("uuidInput").addEventListener("keypress", e => {
+    if(e.key === "Enter") validateUUID();
+  });
+  document.getElementById("loginBtn").onclick = validateUUID;
 });
-document.getElementById("loginBtn").onclick = validateUUID;
 </script>
-
