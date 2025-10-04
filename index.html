@@ -744,3 +744,209 @@ function evaluateSellAlert(sym){
 }
 </script>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!------ Dili mo run ang system kong dili ma validate ang Uuid Log in ---->
+<script>
+const API_URL = "https://server-validation-expiry.onrender.com"; // Your server URL
+
+// Elements
+const loginOverlay = document.getElementById("loginOverlay");
+const warningMessage = document.getElementById("warningMessage");
+const countdownDiv = document.getElementById("countdown");
+const contentDiv = document.getElementById("content");
+const dashboardLock = document.getElementById("dashboardLock");
+const tilesDiv = document.getElementById('tiles');
+const chartWrap = document.getElementById('chartWrap');
+const outputEl = document.getElementById('output');
+const panelEl = document.getElementById('panel');
+
+let uuid = null;
+let countdownInterval = null;
+let firstLoginTime = null;
+
+// Trading Dashboard State
+let SYMBOLS = [
+  'BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','ADAUSDT','DOGEUSDT','TRXUSDT','MATICUSDT','DOTUSDT',
+  'LTCUSDT','BCHUSDT','LINKUSDT','ATOMUSDT','AVAXUSDT','XLMUSDT','ETCUSDT','FILUSDT','ICPUSDT','NEARUSDT',
+  'APTUSDT','ARBUSDT','OPUSDT','SUIUSDT','SEIUSDT','PEPEUSDT','SHIBUSDT','FTMUSDT','ALGOUSDT','AAVEUSDT',
+  'UNIUSDT','TONUSDT','MKRUSDT','INJUSDT','IMXUSDT','RUNEUSDT','SNXUSDT','GMXUSDT','DYDXUSDT','EGLDUSDT',
+  'EOSUSDT','STXUSDT','GRTUSDT','SANDUSDT','MANAUSDT','AXSUSDT','CHZUSDT','ENJUSDT','CFXUSDT','QTUMUSDT'
+];
+const INTERVAL = '1m';
+const PRELOAD = 50000;
+const STORE_ALL = false;
+const MAX_STORE = 12000;
+const VISIBLE = 300;
+const FETCH_DELAY_MS = 30;
+const DRAW_EVERY = 200;
+
+let active = SYMBOLS[0];
+let livePaused = false;
+let fetchedTotal = 0;
+let ws = null;
+const per = {}; // per-symbol state
+
+SYMBOLS.forEach(s=>{
+  per[s] = { candles:[], lastAlertTs:0, lastWsCandleTs:0 };
+});
+
+// Utility
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+const fmt = (n,d=2)=>(n==null||Number.isNaN(n))?'⏳':Number(n).toFixed(d);
+const pushLog = (s)=>{ outputEl.textContent = s+"\n"+outputEl.textContent; };
+const clampStore = (arr)=>{ if(!STORE_ALL && arr.length>MAX_STORE) return arr.slice(-MAX_STORE); return arr; };
+
+// ==========================
+// Countdown Timer
+// ==========================
+function startCountdown(firstLogin){
+  firstLoginTime = firstLogin;
+  const oneMonth = 30*24*60*60*1000;
+  clearInterval(countdownInterval);
+  countdownInterval = setInterval(()=>{
+    const remaining = oneMonth - (Date.now() - firstLoginTime);
+    if(remaining<=0){
+      countdownDiv.textContent = "⏰ Your access has expired!";
+      clearInterval(countdownInterval);
+      loginOverlay.style.display = "flex";
+      dashboardLock.style.display = "block";
+      uuid = null;
+      return;
+    }
+    const days = Math.floor(remaining/(1000*60*60*24));
+    const hours = Math.floor((remaining%(1000*60*60*24))/(1000*60*60));
+    const minutes = Math.floor((remaining%(1000*60*60))/(1000*60));
+    const seconds = Math.floor((remaining%(1000*60))/1000);
+    countdownDiv.textContent = `⏳ Access expires in ${days}d ${hours}h ${minutes}m ${seconds}s`;
+  },1000);
+}
+
+// ==========================
+// UUID Validation
+// ==========================
+async function validateUUID(){
+  uuid = document.getElementById("uuidInput").value.trim();
+  if(!uuid.match(/^[0-9a-fA-F-]{36}$/)){
+    warningMessage.textContent="❌ Invalid UUID format!";
+    return;
+  }
+  try{
+    const res = await fetch(`${API_URL}/validate-uuid`, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({uuid})
+    });
+    const data = await res.json();
+    if(data.valid){
+      loginOverlay.style.display="none";
+      dashboardLock.style.display = "none";
+      warningMessage.textContent="";
+      startCountdown(data.firstLogin);
+      fetchProtectedData();
+      startDashboard();
+    } else {
+      warningMessage.textContent="❌ "+data.message;
+      uuid = null;
+    }
+  }catch(err){
+    warningMessage.textContent="❌ Server error. Try again later.";
+    console.error(err);
+    uuid = null;
+  }
+}
+
+// Event listeners
+document.getElementById("loginBtn").onclick = validateUUID;
+document.getElementById("uuidInput").addEventListener("keypress", e=>{
+  if(e.key==="Enter") validateUUID();
+});
+
+// ==========================
+// Fetch protected content
+// ==========================
+async function fetchProtectedData(){
+  if(!uuid) return;
+  try{
+    const res = await fetch(`${API_URL}/secret-data`, { headers:{"x-uuid":uuid} });
+    const data = await res.json();
+    if(data.data) document.getElementById("protectedData").textContent = data.data;
+  }catch(err){
+    document.getElementById("protectedData").textContent="❌ Failed to fetch protected content.";
+    console.error(err);
+  }
+}
+
+// ==========================
+// Dashboard Starter
+// ==========================
+async function startDashboard(){
+  if(!uuid) return;
+  tilesDiv.style.display='grid';
+  chartWrap.style.display='block';
+  outputEl.style.display='block';
+  panelEl.style.display='block';
+
+  await ensureNotify();
+  await preloadAll();
+  startCombinedWS();
+  setInterval(()=>updateIndicators(active),1000);
+}
+
+// ==========================
+// Notifications
+// ==========================
+async function ensureNotify(){ try{ if(Notification && Notification.permission==='default') await Notification.requestPermission(); }catch{} }
+function notify(title,body){ try{ if(Notification && Notification.permission==='granted') new Notification(title,{body}); }catch{} try{ alert(`${title}\n${body}`);}catch{} }
+
+// ==========================
+// Preload, WebSocket, Indicators, Buy Alerts
+// ==========================
+// Include all your existing functions here:
+// - preloadAll()
+// - fetchHistoryFor()
+// - startCombinedWS()
+// - drawChart()
+// - drawSpark()
+// - SMA, EMA, MACD, RSI, etc.
+// - updateIndicators()
+// - evaluateBuyAlert()
+// Remember: add `if(!uuid) return;` at the start of each to prevent running pre-login
+
+</script>
