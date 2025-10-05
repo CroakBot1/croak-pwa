@@ -838,3 +838,104 @@ window.alert = function(message) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+<script>
+/** ==============================
+ *  SUPPORT & RESISTANCE ADD-ON
+ *  ============================== */
+
+// Detect swing highs/lows for S/R
+function detectSupportResistance(arr, lookback = 60, sensitivity = 3) {
+  if (arr.length < lookback) return { supports: [], resistances: [] };
+  const supports = [], resistances = [];
+
+  for (let i = sensitivity; i < lookback - sensitivity; i++) {
+    const slice = arr.slice(i - sensitivity, i + sensitivity + 1);
+    const low = arr[i].low;
+    const high = arr[i].high;
+
+    // If local low = min of neighbors
+    if (low === Math.min(...slice.map(c => c.low))) {
+      supports.push({ price: low, time: arr[i].time });
+    }
+    // If local high = max of neighbors
+    if (high === Math.max(...slice.map(c => c.high))) {
+      resistances.push({ price: high, time: arr[i].time });
+    }
+  }
+
+  // Remove near-duplicate levels (within % threshold)
+  const dedup = (levels, pct = 0.4) => {
+    const out = [];
+    levels.sort((a, b) => a.price - b.price);
+    for (const lvl of levels) {
+      if (!out.some(o => Math.abs(o.price - lvl.price) / lvl.price < pct / 100))
+        out.push(lvl);
+    }
+    return out;
+  };
+
+  return {
+    supports: dedup(supports, 0.4),
+    resistances: dedup(resistances, 0.4)
+  };
+}
+
+/** ==============================
+ *  PATCH drawChart() to show S/R
+ *  ============================== */
+const _drawChartOriginal = drawChart;
+drawChart = function(scrollToEnd = false) {
+  _drawChartOriginal(scrollToEnd);
+
+  const arr = per[active].candles;
+  if (!arr.length) return;
+  const view = arr.slice(-VISIBLE);
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const maxP = Math.max(...view.map(c => c.high));
+  const minP = Math.min(...view.map(c => c.low));
+
+  const { supports, resistances } = detectSupportResistance(view, 60, 3);
+
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+
+  // Draw Resistance (red)
+  ctx.strokeStyle = '#ff4444';
+  for (const r of resistances) {
+    const y = (1 - (r.price - minP) / (maxP - minP)) * h;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+    ctx.fillStyle = '#ff6666';
+    ctx.font = "10px monospace";
+    ctx.fillText(fmt(r.price), 4, y - 2);
+  }
+
+  // Draw Support (green)
+  ctx.strokeStyle = '#33ff33';
+  for (const s of supports) {
+    const y = (1 - (s.price - minP) / (maxP - minP)) * h;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+    ctx.fillStyle = '#66ff66';
+    ctx.font = "10px monospace";
+    ctx.fillText(fmt(s.price), 4, y - 2);
+  }
+
+  ctx.setLineDash([]);
+};
+</script>
