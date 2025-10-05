@@ -850,50 +850,46 @@ window.alert = function(message) {
 
 
 <script>
-/** ==============================
- *  SUPPORT & RESISTANCE ADD-ON
- *  ============================== */
+/** ======================================
+ *  SUPPORT, RESISTANCE, TRENDS + SMART FADE + STRENGTH BRIGHTNESS
+ *  ====================================== */
 
-// Detect swing highs/lows for S/R
-function detectSupportResistance(arr, lookback = 60, sensitivity = 3) {
-  if (arr.length < lookback) return { supports: [], resistances: [] };
-  const supports = [], resistances = [];
-
-  for (let i = sensitivity; i < lookback - sensitivity; i++) {
+function detectSwings(arr, sensitivity = 3) {
+  const swings = { highs: [], lows: [] };
+  for (let i = sensitivity; i < arr.length - sensitivity; i++) {
     const slice = arr.slice(i - sensitivity, i + sensitivity + 1);
     const low = arr[i].low;
     const high = arr[i].high;
-
-    // If local low = min of neighbors
-    if (low === Math.min(...slice.map(c => c.low))) {
-      supports.push({ price: low, time: arr[i].time });
-    }
-    // If local high = max of neighbors
-    if (high === Math.max(...slice.map(c => c.high))) {
-      resistances.push({ price: high, time: arr[i].time });
-    }
+    if (low === Math.min(...slice.map(c => c.low))) swings.lows.push({ i, price: low });
+    if (high === Math.max(...slice.map(c => c.high))) swings.highs.push({ i, price: high });
   }
+  return swings;
+}
 
-  // Remove near-duplicate levels (within % threshold)
+function detectSupportResistance(arr, lookback = 60, sensitivity = 3) {
+  const slice = arr.slice(-lookback);
+  const { highs, lows } = detectSwings(slice, sensitivity);
   const dedup = (levels, pct = 0.4) => {
     const out = [];
     levels.sort((a, b) => a.price - b.price);
-    for (const lvl of levels) {
+    for (const lvl of levels)
       if (!out.some(o => Math.abs(o.price - lvl.price) / lvl.price < pct / 100))
         out.push(lvl);
-    }
     return out;
   };
-
   return {
-    supports: dedup(supports, 0.4),
-    resistances: dedup(resistances, 0.4)
+    supports: dedup(lows.map(l => ({ price: l.price }))),
+    resistances: dedup(highs.map(h => ({ price: h.price }))),
+    swings: { highs, lows }
   };
 }
 
-/** ==============================
- *  PATCH drawChart() to show S/R
- *  ============================== */
+let lastBreakout = null;
+let breakoutMarkers = [];
+
+/** ======================================
+ *  PATCH drawChart() — BRIGHTNESS-BASED STRENGTH + SMART FADE
+ *  ====================================== */
 const _drawChartOriginal = drawChart;
 drawChart = function(scrollToEnd = false) {
   _drawChartOriginal(scrollToEnd);
@@ -905,37 +901,136 @@ drawChart = function(scrollToEnd = false) {
   const maxP = Math.max(...view.map(c => c.high));
   const minP = Math.min(...view.map(c => c.low));
 
-  const { supports, resistances } = detectSupportResistance(view, 60, 3);
-
+  const { supports, resistances, swings } = detectSupportResistance(view, 80, 3);
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 3]);
 
-  // Draw Resistance (red)
+  // --- Resistance (red dashed) ---
   ctx.strokeStyle = '#ff4444';
   for (const r of resistances) {
     const y = (1 - (r.price - minP) / (maxP - minP)) * h;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-    ctx.fillStyle = '#ff6666';
-    ctx.font = "10px monospace";
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillStyle = '#ff6666'; ctx.font = "10px monospace";
     ctx.fillText(fmt(r.price), 4, y - 2);
   }
 
-  // Draw Support (green)
+  // --- Support (green dashed) ---
   ctx.strokeStyle = '#33ff33';
   for (const s of supports) {
     const y = (1 - (s.price - minP) / (maxP - minP)) * h;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-    ctx.fillStyle = '#66ff66';
-    ctx.font = "10px monospace";
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillStyle = '#66ff66'; ctx.font = "10px monospace";
     ctx.fillText(fmt(s.price), 4, y - 2);
   }
 
   ctx.setLineDash([]);
+
+  // --- Trendlines (orange) ---
+  const lastHighs = swings.highs.slice(-2);
+  const lastLows = swings.lows.slice(-2);
+  ctx.strokeStyle = '#ffaa00';
+  ctx.lineWidth = 1.2;
+
+  let upTrendLine = null;
+  let downTrendLine = null;
+
+  if (lastLows.length === 2) {
+    const [a, b] = lastLows;
+    const x1 = (a.i / view.length) * w;
+    const x2 = (b.i / view.length) * w;
+    const y1 = (1 - (a.price - minP) / (maxP - minP)) * h;
+    const y2 = (1 - (b.price - minP) / (maxP - minP)) * h;
+    ctx.beginPath(); ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 + (w - x2) * 0.5, y2 - (y2 - y1) * 0.5);
+    ctx.stroke();
+    upTrendLine = { x1, y1, x2, y2, p1: a.price, p2: b.price };
+  }
+
+  if (lastHighs.length === 2) {
+    const [a, b] = lastHighs;
+    const x1 = (a.i / view.length) * w;
+    const x2 = (b.i / view.length) * w;
+    const y1 = (1 - (a.price - minP) / (maxP - minP)) * h;
+    const y2 = (1 - (b.price - minP) / (maxP - minP)) * h;
+    ctx.beginPath(); ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 + (w - x2) * 0.5, y2 - (y2 - y1) * 0.5);
+    ctx.stroke();
+    downTrendLine = { x1, y1, x2, y2, p1: a.price, p2: b.price };
+  }
+
+  /** ===========================
+   *  BREAKOUT DETECTION + SMART FADE + STRENGTH BRIGHTNESS
+   *  =========================== */
+  const latest = view[view.length - 1];
+  const price = latest.close;
+  const now = Date.now();
+
+  // --- estimate volatility
+  const changes = view.slice(-30).map((c, i, a) =>
+    i ? Math.abs((c.close - a[i-1].close) / a[i-1].close) : 0
+  );
+  const avg = changes.reduce((a,b)=>a+b,0)/changes.length || 0.0001;
+  const fadeDuration = Math.min(8, Math.max(2, 5 / (avg * 200)));
+
+  const projLinePrice = (line) => {
+    if (!line) return null;
+    const slope = (line.p2 - line.p1) / (line.x2 - line.x1);
+    const xEnd = line.x2 + (w - line.x2) * 0.5;
+    return line.p2 + slope * (xEnd - line.x2);
+  };
+
+  const upTrendPrice = projLinePrice(upTrendLine);
+  const downTrendPrice = projLinePrice(downTrendLine);
+
+  // Detect breakout/breakdown + strength
+  if (downTrendPrice && price > downTrendPrice && lastBreakout !== "breakout") {
+    const strength = ((price - downTrendPrice) / downTrendPrice) * 100;
+    console.log(`🚀 Breakout (${strength.toFixed(2)}%)`);
+    lastBreakout = "breakout";
+    breakoutMarkers.push({ type: "up", price, time: latest.time, created: now, strength });
+  }
+
+  if (upTrendPrice && price < upTrendPrice && lastBreakout !== "breakdown") {
+    const strength = ((upTrendPrice - price) / upTrendPrice) * 100;
+    console.log(`🔻 Breakdown (${strength.toFixed(2)}%)`);
+    lastBreakout = "breakdown";
+    breakoutMarkers.push({ type: "down", price, time: latest.time, created: now, strength });
+  }
+
+  // --- Draw markers + fade + brightness intensity ---
+  const candleWidth = w / view.length;
+  ctx.textAlign = "center";
+  breakoutMarkers = breakoutMarkers.slice(-10);
+
+  for (const mark of breakoutMarkers) {
+    const idx = view.findIndex(c => c.time === mark.time);
+    if (idx === -1) continue;
+    const x = idx * candleWidth + candleWidth / 2;
+    const y = (1 - (mark.price - minP) / (maxP - minP)) * h;
+
+    const age = (now - mark.created) / 1000;
+    const alpha = Math.max(0, 1 - age / fadeDuration);
+    if (alpha <= 0) continue;
+
+    // Brightness intensity based on strength (clamped)
+    const intensity = Math.min(1, Math.max(0.2, mark.strength / 2)); // 0.2–1 scale
+    const colorUp = `rgba(0, ${255 * intensity}, ${255}, ${alpha})`;
+    const colorDown = `rgba(${255}, 0, ${150 * intensity}, ${alpha})`;
+
+    // Marker
+    ctx.font = "18px sans-serif";
+    ctx.fillStyle = mark.type === "up" ? colorUp : colorDown;
+    ctx.fillText(mark.type === "up" ? "🔺" : "🔻", x, y);
+
+    // Label
+    ctx.font = "11px monospace";
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    const label = mark.type === "up" ? `Breakout ${mark.strength.toFixed(2)}% 🚀` :
+                                       `Breakdown ${mark.strength.toFixed(2)}% 🔻`;
+    ctx.fillText(label, x, mark.type === "up" ? y - 14 : y + 18);
+  }
+
+  ctx.globalAlpha = 1.0;
 };
 </script>
+
