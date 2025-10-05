@@ -829,6 +829,27 @@ window.alert = function(message) {
 
 
 
+<script>
+// === Add-on Script: Display Notice Message ===
+document.addEventListener("DOMContentLoaded", () => {
+  const notice = document.createElement("div");
+  notice.textContent = "💡 Run the bot and wait for the buy signal TP/SL";
+  notice.style.cssText = `
+    grid-column: 1 / -1;
+    background: #0b0b0b;
+    border: 1px solid #1aff1a;
+    color: #00ff84;
+    padding: 10px;
+    text-align: center;
+    border-radius: 12px;
+    font-weight: bold;
+    font-size: 16px;
+    margin-bottom: 10px;
+  `;
+  // Insert the notice at the top of the body
+  document.body.insertBefore(notice, document.body.firstChild);
+});
+</script>
 
 
 
