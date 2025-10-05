@@ -873,7 +873,7 @@ function drawChart(scrollToEnd=false){
     ctx.stroke(); 
   }
 
-  // 🟩 Draw 300 visible candles
+  // 🟩 Main candles (still 300 if VISIBLE=300)
   const view = arr.slice(-VISIBLE);
   const maxP=Math.max(...view.map(c=>c.high));
   const minP=Math.min(...view.map(c=>c.low));
@@ -899,15 +899,18 @@ function drawChart(scrollToEnd=false){
     ctx.fillRect(x+1, bodyY, Math.max(1,cw-2), bodyH);
   }
 
-  // 🔶 Fibonacci retracement levels
+  // 🔶 Fibonacci retracement (based on last 50 candles only)
+  const fibView = arr.slice(-50);
+  const fibHigh = Math.max(...fibView.map(c=>c.high));
+  const fibLow  = Math.min(...fibView.map(c=>c.low));
+  const diff = fibHigh - fibLow;
   const fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-  const diff = maxP - minP;
   ctx.lineWidth = 1;
   ctx.font = "12px monospace";
   ctx.textBaseline = "middle";
 
   for (const lvl of fibLevels){
-    const price = maxP - diff * lvl;
+    const price = fibHigh - diff * lvl;
     const y = (1 - (price - minP)/(maxP - minP)) * h;
     ctx.strokeStyle = '#00ffff55';
     ctx.beginPath();
@@ -924,4 +927,3 @@ function drawChart(scrollToEnd=false){
   ctx.fillText(`${active}  C: ${fmt(last.close)}`, 8, 14);
 }
 </script>
-
