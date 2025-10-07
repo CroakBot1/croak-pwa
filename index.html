@@ -537,111 +537,103 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+<!-- TP/SL Long Entry Script (Single-line Popup) -->
 <script>
-/** ==============================
- *  TP / SL Tracking Add-on (for ALL pairs)
- *  ============================== */
-const tpInput = document.getElementById('tpInput');
-const slInput = document.getElementById('slInput');
-const tradeMap = {}; // tradeMap[sym] = { entry, tp, sl, active }
+function evaluateBuyAlert(sym){
+  const arr = per[sym].candles;  
+  if (arr.length < 30) return; // need enough data
+  const view = arr.slice(-150);
+  const last = view[view.length-1];
 
-/** ── Check TP or SL hit ───────────────────────────── */
-function checkTPSL(sym) {
-  const arr = per[sym].candles;
-  if (!tradeMap[sym] || !tradeMap[sym].active || arr.length < 1) return;
-  const last = arr[arr.length - 1];
-  const price = last.close;
-  const { entry, tp, sl } = tradeMap[sym];
+  // === Indicators ===
+  const sma14 = SMA(14, view); 
+  const ema14 = EMA(14, view);
+  const [macd, signal, hist] = MACD(view);
+  const rsi14 = RSI(14, view);
+  const [bbMid, bbU, bbL] = Bollinger(20, view);
+  const atr14 = ATR(14, view);
+  const [dcH, dcL] = Donchian(20, view);
+  const vwap = VWAP(view);
+  const obv = OBV(view);
+  const [pivot, s1, r1] = Pivots(last);
+  const psar = ParabolicSAR(view);
+  const adx14 = ADX(14, view);
+  const [stK, stD] = Stochastic(14, view, sym);
 
-  if (price >= tp) {
-    pushLog(`🎯 ${sym} TAKE PROFIT hit @ ${fmt(price)} (target ${fmt(tp)})`);
-    notify(`🎯 TP Hit — ${sym}`, `Price ${fmt(price)} reached ${fmt(tp)}`);
-    tradeMap[sym].active = false;
-    const b = document.getElementById(`bd_${sym}`);
-    if (b) { b.textContent = "TP ✔"; b.className = "badg buy"; }
-  } 
-  else if (price <= sl) {
-    pushLog(`💀 ${sym} STOP LOSS hit @ ${fmt(price)} (limit ${fmt(sl)})`);
-    notify(`💀 SL Hit — ${sym}`, `Price ${fmt(price)} fell to ${fmt(sl)}`);
-    tradeMap[sym].active = false;
-    const b = document.getElementById(`bd_${sym}`);
-    if (b) { b.textContent = "SL ❌"; b.className = "badg warn"; }
-  }
+  // === BUY signal rules ===
+  const trendUp = (ema14 != null && sma14 != null) && ema14 > sma14;
+  const macdBull = macd != null && signal != null && macd > signal && (hist || 0) > 0;
+  const rsiBull = (rsi14 || 0) >= 55;
+  const priceAboveBBmid = bbMid != null && last.close > bbMid;
+  const psarBull = psar != null && last.close > psar;
+  const adxOk = (adx14 || 0) >= 18;
+  const stochUp = stK != null && stD != null && stK > stD && stK < 85;
+  const aboveVWAP = vwap != null && last.close > vwap;
+  const abovePivot = pivot != null && last.close > pivot;
+  const donchianNearHigh = (dcH != null) && (last.close > (dcH + dcL)/2);
+  const obvRising = (obv || 0) >= 0;
+
+  const ok = trendUp && macdBull && rsiBull && priceAboveBBmid && psarBull &&
+             adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvRising;
+
+  // === Update badge on tile ===
+  const badge = document.getElementById(`bd_${sym}`);
+  if (ok){ badge.textContent = 'BUY'; badge.className = 'badg buy'; }
+  else { badge.textContent = '—'; badge.className = 'badg'; }
+
+  // === BUY ALERT + TP/SL SETUP ===
+  const lastTs = per[sym].lastAlertTs || 0;
+  const candleTs = last.time;
+  if (ok && candleTs !== lastTs){
+    per[sym].lastAlertTs = candleTs;
+
+    const entry = last.close;
+
+    // === ATR-based TP/SL with fallback to indicator levels ===
+    const rr = 2;          
+    const atrMult = 1.5;   
+
+    let stopLoss = psar || dcL || bbL;
+    let takeProfit = dcH || bbU || r1;
+
+    if (!stopLoss || Math.abs(entry - stopLoss) < atrMult * atr14) {
+      stopLoss = entry - (atrMult * atr14);
+    }
+
+    const risk = entry - stopLoss;
+    let targetTP = entry + (rr * risk);
+
+    if (takeProfit && takeProfit > entry && takeProfit > targetTP) {
+      targetTP = takeProfit;
+    }
+
+    takeProfit = targetTP;
+
+    // Save trade
+    per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs };
+
+    // === Single-line popup message ===
+    const msg = `${sym} LONG @ ${fmt(entry)} | SL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}`;
+    pushLog(`🔔 ${msg}`);
+    notify(`LONG Alert — ${sym}`, msg);
+  }
+
+  // === Monitor open trade for TP/SL hit ===
+  const trade = per[sym].lastTrade;
+  if (trade){
+    if (last.low <= trade.stopLoss){
+      pushLog(`❌ ${sym} Stop Loss hit @ ${fmt(trade.stopLoss)}`);
+      notify(`${sym} STOP LOSS`, `Hit @ ${fmt(trade.stopLoss)}`);
+      per[sym].lastTrade = null;
+    } else if (last.high >= trade.takeProfit){
+      pushLog(`✅ ${sym} Take Profit hit @ ${fmt(trade.takeProfit)}`);
+      notify(`${sym} TAKE PROFIT`, `Hit @ ${fmt(trade.takeProfit)}`);
+      per[sym].lastTrade = null;
+    }
+  }
 }
-
-/** ── Extend evaluateBuyAlert for TP/SL ─────────────── */
-const _oldEval = evaluateBuyAlert;
-evaluateBuyAlert = function(sym) {
-  _oldEval(sym);
-  const arr = per[sym].candles;
-  if (arr.length < 1) return;
-  const last = arr[arr.length - 1];
-  const badge = document.getElementById(`bd_${sym}`);
-  
-  // Activate trade when BUY signal appears
-  if (badge && badge.textContent === "BUY") {
-    const tpPerc = parseFloat(tpInput.value) || 2;
-    const slPerc = parseFloat(slInput.value) || 1;
-    const tp = last.close * (1 + tpPerc / 100);
-    const sl = last.close * (1 - slPerc / 100);
-    tradeMap[sym] = { entry: last.close, tp, sl, active: true };
-    pushLog(`🎯 ${sym} BUY @ ${fmt(last.close)} | TP ${fmt(tp)} | SL ${fmt(sl)}`);
-  }
-
-  // Continuously monitor for TP/SL hits
-  checkTPSL(sym);
-};
-
-/** ── Extend drawChart to overlay TP/SL lines ───────── */
-const _oldDraw = drawChart;
-drawChart = function(scrollToEnd=false) {
-  _oldDraw(scrollToEnd);
-  const trade = tradeMap[active];
-  if (!trade || !trade.active) return;
-
-  const arr = per[active].candles;
-  if (!arr.length) return;
-  const view = arr.slice(-VISIBLE);
-  const maxP = Math.max(...view.map(c=>c.high));
-  const minP = Math.min(...view.map(c=>c.low));
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  const priceToY = (p) => (1 - (p - minP) / (maxP - minP)) * h;
-
-  ctx.save();
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([5,5]);
-
-  // Entry line
-  ctx.strokeStyle = "#00ffff";
-  ctx.beginPath();
-  ctx.moveTo(0, priceToY(trade.entry));
-  ctx.lineTo(w, priceToY(trade.entry));
-  ctx.stroke();
-  ctx.fillStyle = "#00ffff";
-  ctx.fillText(`Entry ${fmt(trade.entry)}`, 10, priceToY(trade.entry)-4);
-
-  // TP line
-  ctx.strokeStyle = "#00ff84";
-  ctx.beginPath();
-  ctx.moveTo(0, priceToY(trade.tp));
-  ctx.lineTo(w, priceToY(trade.tp));
-  ctx.stroke();
-  ctx.fillStyle = "#00ff84";
-  ctx.fillText(`TP ${fmt(trade.tp)}`, 10, priceToY(trade.tp)-4);
-
-  // SL line
-  ctx.strokeStyle = "#ff4d4d";
-  ctx.beginPath();
-  ctx.moveTo(0, priceToY(trade.sl));
-  ctx.lineTo(w, priceToY(trade.sl));
-  ctx.stroke();
-  ctx.fillStyle = "#ff4d4d";
-  ctx.fillText(`SL ${fmt(trade.sl)}`, 10, priceToY(trade.sl)-4);
-
-  ctx.restore();
-};
 </script>
+
 
 
 
