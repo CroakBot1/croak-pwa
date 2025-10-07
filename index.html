@@ -537,7 +537,7 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-<!-- TP/SL Long Entry Script (Single-line Popup) -->
+<!-- TP/SL Long Entry Script (With Volume Filter) -->
 <script>
 function evaluateBuyAlert(sym){
   const arr = per[sym].candles;  
@@ -560,6 +560,11 @@ function evaluateBuyAlert(sym){
   const adx14 = ADX(14, view);
   const [stK, stD] = Stochastic(14, view, sym);
 
+  // === Volume Filter ===
+  const avgVol = view.slice(-20).reduce((a, c) => a + c.volume, 0) / 20;  // 20-candle average volume
+  const minVolFactor = 0.8; // require current volume at least 80% of avgVol
+  const volumeOk = last.volume >= avgVol * minVolFactor;
+
   // === BUY signal rules ===
   const trendUp = (ema14 != null && sma14 != null) && ema14 > sma14;
   const macdBull = macd != null && signal != null && macd > signal && (hist || 0) > 0;
@@ -574,7 +579,7 @@ function evaluateBuyAlert(sym){
   const obvRising = (obv || 0) >= 0;
 
   const ok = trendUp && macdBull && rsiBull && priceAboveBBmid && psarBull &&
-             adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvRising;
+             adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvRising && volumeOk;
 
   // === Update badge on tile ===
   const badge = document.getElementById(`bd_${sym}`);
@@ -613,7 +618,7 @@ function evaluateBuyAlert(sym){
     per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs };
 
     // === Single-line popup message ===
-    const msg = `${sym} LONG @ ${fmt(entry)} | SL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}`;
+    const msg = `${sym} LONG @ ${fmt(entry)} | SL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)} | Vol: ${fmt(last.volume)}`;
     pushLog(`🔔 ${msg}`);
     notify(`LONG Alert — ${sym}`, msg);
   }
@@ -633,6 +638,7 @@ function evaluateBuyAlert(sym){
   }
 }
 </script>
+
 
 
 
