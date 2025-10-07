@@ -536,8 +536,32 @@ observer.observe(document.body,{childList:true, subtree:true});
  
 
 
-<!---- Long/short signal,  TP/SL  ---->
 <script>
+// ===============================
+// Simple Popup Alert System
+// ===============================
+function showPopupAlert(message, color = '#0ff') {
+  const popup = document.createElement('div');
+  popup.innerText = message;
+  popup.style.position = 'fixed';
+  popup.style.top = '20px';
+  popup.style.right = '20px';
+  popup.style.background = color;
+  popup.style.color = 'black';
+  popup.style.fontWeight = 'bold';
+  popup.style.padding = '10px 16px';
+  popup.style.borderRadius = '10px';
+  popup.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
+  popup.style.zIndex = 9999;
+  popup.style.transition = 'opacity 0.5s';
+  document.body.appendChild(popup);
+
+  setTimeout(() => {
+    popup.style.opacity = '0';
+    setTimeout(() => popup.remove(), 500);
+  }, 4000);
+}
+
 // ===============================
 // Historical TP/SL Storage
 // ===============================
@@ -595,6 +619,10 @@ function evaluateTradeSignalsWithHistory(sym) {
     const type = longCond ? 'LONG' : 'SHORT';
     trades[sym].push({type, entry:last.close, sl, tp, openCandle:last.time});
     notifySignal(sym, type, last.close, tp, sl);
+
+    // 🔔 Popup entry alert
+    const entryColor = type === 'LONG' ? '#00ff99' : '#ff6666';
+    showPopupAlert(`${sym} ${type} ENTRY\nEntry: ${fmt(last.close)}\nTP: ${fmt(tp)}\nSL: ${fmt(sl)}`, entryColor);
   }
 
   // Check TP/SL hit & move to historical
@@ -603,8 +631,16 @@ function evaluateTradeSignalsWithHistory(sym) {
     const hitSL = (t.type==='LONG' && last.low <= t.sl) || (t.type==='SHORT' && last.high >= t.sl);
     if(hitTP || hitSL){
       historicalTPSL[sym].push({...t, hitTP, hitSL});
-      if(hitTP){ pushLog(`✅ ${sym} ${t.type} TP HIT @ ${fmt(t.tp)}`); tpSound.play(); }
-      if(hitSL){ pushLog(`❌ ${sym} ${t.type} SL HIT @ ${fmt(t.sl)}`); slSound.play(); }
+      if(hitTP){
+        pushLog(`✅ ${sym} ${t.type} TP HIT @ ${fmt(t.tp)}`);
+        tpSound.play();
+        showPopupAlert(`${sym} ${t.type} ✅ TAKE PROFIT HIT @ ${fmt(t.tp)}`, '#00ff84');
+      }
+      if(hitSL){
+        pushLog(`❌ ${sym} ${t.type} STOP LOSS HIT @ ${fmt(t.sl)}`);
+        slSound.play();
+        showPopupAlert(`${sym} ${t.type} ❌ STOP LOSS HIT @ ${fmt(t.sl)}`, '#ff4444');
+      }
     }
     return !(hitTP || hitSL);
   });
@@ -659,6 +695,7 @@ drawChart = function(scrollToEnd=false){
 // ===============================
 setInterval(() => SYMBOLS.forEach(s => evaluateTradeSignalsWithHistory(s)), 1000);
 </script>
+
 
 
 
