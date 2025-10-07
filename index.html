@@ -535,8 +535,8 @@ observer.observe(document.body,{childList:true, subtree:true});
 
  
 
-
-<script>
+<!----- Long Entry, Short Entry TP/SL ----->
+ <script>
 // ===============================
 // Simple Popup Alert System
 // ===============================
@@ -563,138 +563,73 @@ function showPopupAlert(message, color = '#0ff') {
 }
 
 // ===============================
-// Historical TP/SL Storage
+// Trade tracking & TP/SL alerts
 // ===============================
-const historicalTPSL = {}; // store closed trade TP/SL per symbol
-SYMBOLS.forEach(s => historicalTPSL[s] = []);
+const trades = {}; // trades per symbol
 
-// ===============================
-// Evaluate Trade Signals with Multi-Trades & Track History
-// ===============================
 function evaluateTradeSignalsWithHistory(sym) {
   if (!trades[sym]) trades[sym] = [];
-  if (!historicalTPSL[sym]) historicalTPSL[sym] = [];
-
   const arr = per[sym].candles;
   if (arr.length < 30) return;
-  const last = arr[arr.length - 1];
+  const last = arr[arr.length-1];
   const view = arr.slice(-150);
 
-  // Indicators
-  const sma14 = SMA(14, view);
-  const ema14 = EMA(14, view);
-  const [macd, signal, hist] = MACD(view);
-  const rsi14 = RSI(14, view);
-  const [bbMid] = Bollinger(20, view);
-  const atr14 = ATR(14, view);
-  const [dcH, dcL] = Donchian(20, view);
-  const vwap = VWAP(view);
-  const psar = ParabolicSAR(view);
-  const adx14 = ADX(14, view);
-  const [stK, stD] = Stochastic(14, view, sym);
+  const sma14=SMA(14,view), ema14=EMA(14,view);
+  const [macd,signal,hist]=MACD(view);
+  const rsi14=RSI(14,view);
+  const [bbMid]=Bollinger(20,view);
+  const atr14=ATR(14,view);
+  const [dcH,dcL]=Donchian(20,view);
+  const vwap=VWAP(view);
+  const psar=ParabolicSAR(view);
+  const adx14=ADX(14,view);
+  const [stK,stD]=Stochastic(14,view,sym);
 
-  const atrMult = parseFloat(document.getElementById('atrMultInput').value) || 1.5;
-  const rrRatio = parseFloat(document.getElementById('rrRatioInput').value) || 2;
+  const atrMult = parseFloat(document.getElementById('atrMultInput')?.value) || 1.5;
+  const rrRatio = parseFloat(document.getElementById('rrRatioInput')?.value) || 2;
 
   const longCond = ema14 && sma14 && ema14 > sma14 &&
-                   macd && signal && macd > signal && hist > 0 &&
-                   rsi14 >= 55 && last.close > bbMid &&
-                   last.close > psar && adx14 >= 18 &&
-                   stK > stD && stK < 85 && last.close > vwap &&
-                   last.close > (dcH + dcL)/2;
+                   macd && signal && macd>signal && hist>0 &&
+                   rsi14>=55 && last.close>bbMid &&
+                   last.close>psar && adx14>=18 &&
+                   stK>stD && stK<85 && last.close>vwap &&
+                   last.close>(dcH+dcL)/2;
 
   const shortCond = ema14 && sma14 && ema14 < sma14 &&
-                    macd && signal && macd < signal && hist < 0 &&
-                    rsi14 <= 45 && last.close < bbMid &&
-                    last.close < psar && adx14 >= 18 &&
-                    stK < stD && stK > 15 && last.close < vwap &&
-                    last.close < (dcH + dcL)/2;
+                    macd && signal && macd<signal && hist<0 &&
+                    rsi14<=45 && last.close<bbMid &&
+                    last.close<psar && adx14>=18 &&
+                    stK<stD && stK>15 && last.close<vwap &&
+                    last.close<(dcH+dcL)/2;
 
-  let tp = null, sl = null;
-  if (longCond) { sl = last.close - atr14*atrMult; tp = last.close + atr14*atrMult*rrRatio; }
-  else if (shortCond) { sl = last.close + atr14*atrMult; tp = last.close - atr14*atrMult*rrRatio; }
+  let tp=null, sl=null;
+  if(longCond){ sl=last.close-atr14*atrMult; tp=last.close+atr14*atrMult*rrRatio; }
+  else if(shortCond){ sl=last.close+atr14*atrMult; tp=last.close-atr14*atrMult*rrRatio; }
 
   // Track new trades
-  if ((longCond || shortCond) && (!trades[sym].length || trades[sym][trades[sym].length-1].openCandle !== last.time)) {
+  if((longCond||shortCond) && (!trades[sym].length || trades[sym][trades[sym].length-1].openCandle!==last.time)){
     const type = longCond ? 'LONG' : 'SHORT';
     trades[sym].push({type, entry:last.close, sl, tp, openCandle:last.time});
-    notifySignal(sym, type, last.close, tp, sl);
-
-    // 🔔 Popup entry alert
-    const entryColor = type === 'LONG' ? '#00ff99' : '#ff6666';
-    showPopupAlert(`${sym} ${type} ENTRY\nEntry: ${fmt(last.close)}\nTP: ${fmt(tp)}\nSL: ${fmt(sl)}`, entryColor);
+    const color = type==='LONG' ? '#00ff99' : '#ff6666';
+    showPopupAlert(`${sym} ${type} ENTRY\nEntry: ${fmt(last.close)}\nTP: ${fmt(tp)}\nSL: ${fmt(sl)}`, color);
   }
 
-  // Check TP/SL hit & move to historical
-  trades[sym] = trades[sym].filter(t => {
-    const hitTP = (t.type==='LONG' && last.high >= t.tp) || (t.type==='SHORT' && last.low <= t.tp);
-    const hitSL = (t.type==='LONG' && last.low <= t.sl) || (t.type==='SHORT' && last.high >= t.sl);
-    if(hitTP || hitSL){
-      historicalTPSL[sym].push({...t, hitTP, hitSL});
-      if(hitTP){
-        pushLog(`✅ ${sym} ${t.type} TP HIT @ ${fmt(t.tp)}`);
-        tpSound.play();
-        showPopupAlert(`${sym} ${t.type} ✅ TAKE PROFIT HIT @ ${fmt(t.tp)}`, '#00ff84');
-      }
-      if(hitSL){
-        pushLog(`❌ ${sym} ${t.type} STOP LOSS HIT @ ${fmt(t.sl)}`);
-        slSound.play();
-        showPopupAlert(`${sym} ${t.type} ❌ STOP LOSS HIT @ ${fmt(t.sl)}`, '#ff4444');
-      }
-    }
+  // Check TP/SL hits
+  trades[sym] = trades[sym].filter(t=>{
+    const hitTP = (t.type==='LONG' && last.high>=t.tp) || (t.type==='SHORT' && last.low<=t.tp);
+    const hitSL = (t.type==='LONG' && last.low<=t.sl) || (t.type==='SHORT' && last.high>=t.sl);
+
+    if(hitTP) showPopupAlert(`${sym} ${t.type} ✅ TAKE PROFIT HIT @ ${fmt(t.tp)}`, '#00ff84');
+    if(hitSL) showPopupAlert(`${sym} ${t.type} ❌ STOP LOSS HIT @ ${fmt(t.sl)}`, '#ff4444');
+
     return !(hitTP || hitSL);
   });
 }
 
-// ===============================
-// Draw Historical TP/SL Lines
-// ===============================
-function drawHistoricalTPSL(sym = active){
-  const arr = per[sym].candles;
-  if(!arr.length || !historicalTPSL[sym].length) return;
-
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  const view = arr.slice(-VISIBLE);
-  const maxP = Math.max(...view.map(c => c.high));
-  const minP = Math.min(...view.map(c => c.low));
-  const priceToY = price => h * (1 - (price - minP)/(maxP - minP));
-
-  ctx.save();
-  ctx.lineWidth = 1;
-  ctx.setLineDash([2,4]);
-
-  historicalTPSL[sym].forEach(t => {
-    const yTP = priceToY(t.tp);
-    const ySL = priceToY(t.sl);
-
-    // TP line
-    ctx.strokeStyle = t.hitTP ? '#00ff84' : '#00ffff';
-    ctx.beginPath(); ctx.moveTo(0, yTP); ctx.lineTo(w, yTP); ctx.stroke();
-
-    // SL line
-    ctx.strokeStyle = t.hitSL ? '#ff0000' : '#ff4d4d';
-    ctx.beginPath(); ctx.moveTo(0, ySL); ctx.lineTo(w, ySL); ctx.stroke();
-  });
-
-  ctx.restore();
-}
-
-// ===============================
-// Override drawChart to include historical TP/SL
-// ===============================
-const oldDrawChart2 = drawChart;
-drawChart = function(scrollToEnd=false){
-  oldDrawChart2(scrollToEnd);
-  drawTPSLMultiple(active);
-  drawTPSLMarkers(active);
-  drawHistoricalTPSL(active);
-};
-
-// ===============================
-// Run Live Evaluation Every Second
-// ===============================
-setInterval(() => SYMBOLS.forEach(s => evaluateTradeSignalsWithHistory(s)), 1000);
+// Run live evaluation
+setInterval(()=> SYMBOLS.forEach(s=>evaluateTradeSignalsWithHistory(s)),1000);
 </script>
+
 
 
 
