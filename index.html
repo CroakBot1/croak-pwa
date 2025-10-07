@@ -535,31 +535,37 @@ observer.observe(document.body,{childList:true, subtree:true});
 
  
 
-<!----- Long Entry, Short Entry TP/SL ----->
- <script>
+<script>
 // ===============================
-// Simple Popup Alert System
+// Request Notification Permission
 // ===============================
-function showPopupAlert(message, color = '#0ff') {
-  const popup = document.createElement('div');
-  popup.innerText = message;
-  popup.style.position = 'fixed';
-  popup.style.top = '20px';
-  popup.style.right = '20px';
-  popup.style.background = color;
-  popup.style.color = 'black';
-  popup.style.fontWeight = 'bold';
-  popup.style.padding = '10px 16px';
-  popup.style.borderRadius = '10px';
-  popup.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
-  popup.style.zIndex = 9999;
-  popup.style.transition = 'opacity 0.5s';
-  document.body.appendChild(popup);
+if (Notification.permission !== "granted") {
+  Notification.requestPermission().then(permission => {
+    if (permission !== "granted") {
+      alert("Please allow notifications to receive trade alerts.");
+    }
+  });
+}
 
-  setTimeout(() => {
-    popup.style.opacity = '0';
-    setTimeout(() => popup.remove(), 500);
-  }, 4000);
+// ===============================
+// Native Desktop Notification Helper
+// ===============================
+function showNativeAlert(title, body, color = "#0ff") {
+  if (Notification.permission === "granted") {
+    const notif = new Notification(title, {
+      body: body,
+      icon: color === "#00ff99"
+        ? "https://img.icons8.com/color/48/00ff99/up.png" // green icon for LONG
+        : color === "#ff6666"
+        ? "https://img.icons8.com/color/48/ff6666/down.png" // red icon for SHORT
+        : "https://img.icons8.com/color/48/0ff/info.png",   // blue for info
+    });
+
+    // Optional: auto-close after 5s
+    setTimeout(() => notif.close(), 5000);
+  } else {
+    console.warn("Notifications not permitted by user.");
+  }
 }
 
 // ===============================
@@ -610,8 +616,13 @@ function evaluateTradeSignalsWithHistory(sym) {
   if((longCond||shortCond) && (!trades[sym].length || trades[sym][trades[sym].length-1].openCandle!==last.time)){
     const type = longCond ? 'LONG' : 'SHORT';
     trades[sym].push({type, entry:last.close, sl, tp, openCandle:last.time});
+
     const color = type==='LONG' ? '#00ff99' : '#ff6666';
-    showPopupAlert(`${sym} ${type} ENTRY\nEntry: ${fmt(last.close)}\nTP: ${fmt(tp)}\nSL: ${fmt(sl)}`, color);
+    showNativeAlert(
+      `${sym} ${type} ENTRY`,
+      `Entry: ${fmt(last.close)}\nTP: ${fmt(tp)}\nSL: ${fmt(sl)}`,
+      color
+    );
   }
 
   // Check TP/SL hits
@@ -619,8 +630,8 @@ function evaluateTradeSignalsWithHistory(sym) {
     const hitTP = (t.type==='LONG' && last.high>=t.tp) || (t.type==='SHORT' && last.low<=t.tp);
     const hitSL = (t.type==='LONG' && last.low<=t.sl) || (t.type==='SHORT' && last.high>=t.sl);
 
-    if(hitTP) showPopupAlert(`${sym} ${t.type} ✅ TAKE PROFIT HIT @ ${fmt(t.tp)}`, '#00ff84');
-    if(hitSL) showPopupAlert(`${sym} ${t.type} ❌ STOP LOSS HIT @ ${fmt(t.sl)}`, '#ff4444');
+    if(hitTP) showNativeAlert(`${sym} ${t.type} ✅ TAKE PROFIT HIT`, `TP @ ${fmt(t.tp)}`, "#00ff84");
+    if(hitSL) showNativeAlert(`${sym} ${t.type} ❌ STOP LOSS HIT`, `SL @ ${fmt(t.sl)}`, "#ff4444");
 
     return !(hitTP || hitSL);
   });
