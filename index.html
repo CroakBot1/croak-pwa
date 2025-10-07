@@ -535,110 +535,137 @@ observer.observe(document.body,{childList:true, subtree:true});
 
  
 
+
+
+
+<!--- LONG/SHORT ENTRY TP/SL   ---->
 <script>
-// ===============================
-// Request Notification Permission
-// ===============================
-if (Notification.permission !== "granted") {
-  Notification.requestPermission().then(permission => {
-    if (permission !== "granted") {
-      alert("Please allow notifications to receive trade alerts.");
-    }
-  });
+const trades = {}; // track active trades per symbol
+
+function evaluateTradeSignals(sym){
+  const st = per[sym];
+  if(!st || st.candles.length < 30) return;
+  if(!trades[sym]) trades[sym] = [];
+
+  const arr = st.candles;
+  const last = arr[arr.length-1];
+  const view = arr.slice(-150);
+
+  // Indicators
+  const sma14 = SMA(14, view), ema14 = EMA(14, view);
+  const [macd, signal, hist] = MACD(view);
+  const rsi14 = RSI(14, view);
+  const [bbMid] = Bollinger(20, view);
+  const atr14 = ATR(14, view);
+  const [dcH, dcL] = Donchian(20, view);
+  const vwap = VWAP(view);
+  const psar = ParabolicSAR(view);
+  const adx14 = ADX(14, view);
+  const [stK, stD] = Stochastic(14, view, sym);
+  const [pivot] = Pivots(last);
+
+  const atrMult = 1.5;
+  const rrRatio = 2;
+
+  // LONG condition
+  const longCond = ema14 > sma14 && macd > signal && hist > 0 && rsi14 >= 55 &&
+                   last.close > bbMid && last.close > psar && adx14 >= 18 &&
+                   stK > stD && stK < 85 && last.close > vwap && last.close > pivot &&
+                   last.close > (dcH + dcL)/2;
+
+  // SHORT condition
+  const shortCond = ema14 < sma14 && macd < signal && hist < 0 && rsi14 <= 45 &&
+                    last.close < bbMid && last.close < psar && adx14 >= 18 &&
+                    stK < stD && stK > 15 && last.close < vwap && last.close < pivot &&
+                    last.close < (dcH + dcL)/2;
+
+  // Compute TP/SL
+  let tp = null, sl = null;
+  if(longCond){ sl = last.close - atr14*atrMult; tp = last.close + atr14*atrMult*rrRatio; }
+  if(shortCond){ sl = last.close + atr14*atrMult; tp = last.close - atr14*atrMult*rrRatio; }
+
+  const badge = document.getElementById(`bd_${sym}`);
+
+  // Track new trades (avoid duplicate per candle)
+  if((longCond || shortCond) && (!trades[sym].length || trades[sym][trades[sym].length-1].openCandle !== last.time)){
+    const type = longCond ? 'LONG' : 'SHORT';
+    trades[sym].push({ type, entry: last.close, sl, tp, openCandle: last.time });
+
+    // Cap open trades to 10
+    if(trades[sym].length > 10) trades[sym].shift();
+
+    badge.textContent = type;
+    badge.className = 'badg ' + (type==='LONG'?'buy':'warn');
+
+    const msg = `${sym} ${type} ENTRY @ ${fmt(last.close)} | TP ${fmt(tp)} | SL ${fmt(sl)}`;
+    pushLog(`🔔 ${msg}`);
+    notify(`${type} Alert — ${sym}`, msg);
+  }
+
+  // Check TP/SL hits
+  trades[sym] = trades[sym].filter(t => {
+    const hitTP = (t.type==='LONG' && last.high >= t.tp) || (t.type==='SHORT' && last.low <= t.tp);
+    const hitSL = (t.type==='LONG' && last.low <= t.sl) || (t.type==='SHORT' && last.high >= t.sl);
+
+    if(hitTP){
+      pushLog(`✅ ${sym} ${t.type} TP HIT @ ${fmt(t.tp)}`);
+      notify(`${t.type} TP Hit — ${sym}`, `TP @ ${fmt(t.tp)}`);
+      badge.textContent = 'TP HIT';
+      badge.className = 'badg green';
+    }
+    if(hitSL){
+      pushLog(`❌ ${sym} ${t.type} SL HIT @ ${fmt(t.sl)}`);
+      notify(`${t.type} SL Hit — ${sym}`, `SL @ ${fmt(t.sl)}`);
+      badge.textContent = 'SL HIT';
+      badge.className = 'badg red';
+    }
+
+    return !(hitTP || hitSL);
+  });
 }
 
-// ===============================
-// Native Desktop Notification Helper
-// ===============================
-function showNativeAlert(title, body, color = "#0ff") {
-  if (Notification.permission === "granted") {
-    const notif = new Notification(title, {
-      body: body,
-      icon: color === "#00ff99"
-        ? "https://img.icons8.com/color/48/00ff99/up.png" // green icon for LONG
-        : color === "#ff6666"
-        ? "https://img.icons8.com/color/48/ff6666/down.png" // red icon for SHORT
-        : "https://img.icons8.com/color/48/0ff/info.png",   // blue for info
-    });
+// ==========================
+// WebSocket-driven evaluation
+// ==========================
+function startCombinedWS(){
+  if(ws) try{ ws.close(); }catch{}
+  const streams = SYMBOLS.map(s => `${s.toLowerCase()}@kline_${INTERVAL}`).join('/');
+  const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
+  ws = new WebSocket(url);
 
-    // Optional: auto-close after 5s
-    setTimeout(() => notif.close(), 5000);
-  } else {
-    console.warn("Notifications not permitted by user.");
-  }
+  ws.onopen = ()=>{ liveEl.textContent = 'Live: connected'; pushLog('✅ Combined WebSocket connected.'); };
+  ws.onerror = ()=>{ liveEl.textContent = 'Live: error'; pushLog('❌ WebSocket error'); };
+  ws.onclose = ()=>{ liveEl.textContent = 'Live: closed'; pushLog('⚠️ WebSocket closed. Reconnecting…'); setTimeout(startCombinedWS, 1500); };
+
+  ws.onmessage = (ev)=>{
+    if(livePaused) return;
+    const msg = JSON.parse(ev.data);
+    if (!msg || !msg.data || !msg.data.k) return;
+    const k = msg.data.k; const sym = msg.data.s || k.s || msg.stream?.split('@')[0].toUpperCase();
+    const st = per[sym]; if(!st) return;
+
+    const incoming = { time:k.t, open:+k.o, high:+k.h, low:+k.l, close:+k.c, volume:+k.v };
+    const arr = st.candles;
+    const last = arr[arr.length-1];
+    const sameBar = last && last.time === incoming.time;
+    if (sameBar) arr[arr.length-1] = incoming; else { arr.push(incoming); per[sym].lastWsCandleTs = incoming.time; }
+    st.candles = clampStore(arr);
+
+    if(sym === active){
+      const ts = new Date(incoming.time).toLocaleTimeString();
+      const delta = (last ? incoming.close - last.close : 0);
+      pushLog(`${sameBar ? '⚡' : '🟢'} ${sym} [${ts}] O:${fmt(incoming.open)} H:${fmt(incoming.high)} L:${fmt(incoming.low)} C:${fmt(incoming.close)} (Δ ${fmt(delta)}) V:${fmt(incoming.volume,0)}`);
+      drawChart();
+      updateIndicators(sym);
+    }
+
+    drawSpark(sym);
+    evaluateTradeSignals(sym); // <== Real-time evaluation
+  };
 }
 
-// ===============================
-// Trade tracking & TP/SL alerts
-// ===============================
-const trades = {}; // trades per symbol
-
-function evaluateTradeSignalsWithHistory(sym) {
-  if (!trades[sym]) trades[sym] = [];
-  const arr = per[sym].candles;
-  if (arr.length < 30) return;
-  const last = arr[arr.length-1];
-  const view = arr.slice(-150);
-
-  const sma14=SMA(14,view), ema14=EMA(14,view);
-  const [macd,signal,hist]=MACD(view);
-  const rsi14=RSI(14,view);
-  const [bbMid]=Bollinger(20,view);
-  const atr14=ATR(14,view);
-  const [dcH,dcL]=Donchian(20,view);
-  const vwap=VWAP(view);
-  const psar=ParabolicSAR(view);
-  const adx14=ADX(14,view);
-  const [stK,stD]=Stochastic(14,view,sym);
-
-  const atrMult = parseFloat(document.getElementById('atrMultInput')?.value) || 1.5;
-  const rrRatio = parseFloat(document.getElementById('rrRatioInput')?.value) || 2;
-
-  const longCond = ema14 && sma14 && ema14 > sma14 &&
-                   macd && signal && macd>signal && hist>0 &&
-                   rsi14>=55 && last.close>bbMid &&
-                   last.close>psar && adx14>=18 &&
-                   stK>stD && stK<85 && last.close>vwap &&
-                   last.close>(dcH+dcL)/2;
-
-  const shortCond = ema14 && sma14 && ema14 < sma14 &&
-                    macd && signal && macd<signal && hist<0 &&
-                    rsi14<=45 && last.close<bbMid &&
-                    last.close<psar && adx14>=18 &&
-                    stK<stD && stK>15 && last.close<vwap &&
-                    last.close<(dcH+dcL)/2;
-
-  let tp=null, sl=null;
-  if(longCond){ sl=last.close-atr14*atrMult; tp=last.close+atr14*atrMult*rrRatio; }
-  else if(shortCond){ sl=last.close+atr14*atrMult; tp=last.close-atr14*atrMult*rrRatio; }
-
-  // Track new trades
-  if((longCond||shortCond) && (!trades[sym].length || trades[sym][trades[sym].length-1].openCandle!==last.time)){
-    const type = longCond ? 'LONG' : 'SHORT';
-    trades[sym].push({type, entry:last.close, sl, tp, openCandle:last.time});
-
-    const color = type==='LONG' ? '#00ff99' : '#ff6666';
-    showNativeAlert(
-      `${sym} ${type} ENTRY`,
-      `Entry: ${fmt(last.close)}\nTP: ${fmt(tp)}\nSL: ${fmt(sl)}`,
-      color
-    );
-  }
-
-  // Check TP/SL hits
-  trades[sym] = trades[sym].filter(t=>{
-    const hitTP = (t.type==='LONG' && last.high>=t.tp) || (t.type==='SHORT' && last.low<=t.tp);
-    const hitSL = (t.type==='LONG' && last.low<=t.sl) || (t.type==='SHORT' && last.high>=t.sl);
-
-    if(hitTP) showNativeAlert(`${sym} ${t.type} ✅ TAKE PROFIT HIT`, `TP @ ${fmt(t.tp)}`, "#00ff84");
-    if(hitSL) showNativeAlert(`${sym} ${t.type} ❌ STOP LOSS HIT`, `SL @ ${fmt(t.sl)}`, "#ff4444");
-
-    return !(hitTP || hitSL);
-  });
-}
-
-// Run live evaluation
-setInterval(()=> SYMBOLS.forEach(s=>evaluateTradeSignalsWithHistory(s)),1000);
+// Replace previous interval with WebSocket-driven evaluation
+// setInterval(()=> SYMBOLS.forEach(s => evaluateTradeSignals(s)), 1000); // REMOVE
 </script>
 
 
