@@ -520,8 +520,7 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-
-<!-- TP/SL  add on script -->
+<!-- TP/SL  add on script (with min gap filter) -->
 <script>
 function evaluateBuyAlert(sym){
   const arr = per[sym].candles;  
@@ -530,31 +529,32 @@ function evaluateBuyAlert(sym){
   const last = view[view.length-1];
 
   // === Indicators ===
-  const sma14=SMA(14,view); const ema14=EMA(14,view);
-  const [macd,signal,hist]=MACD(view);
-  const rsi14=RSI(14,view);
-  const [bbMid,bbU,bbL]=Bollinger(20,view);
-  const atr14=ATR(14,view);
-  const [dcH,dcL]=Donchian(20,view);
-  const vwap=VWAP(view);
-  const obv=OBV(view);
-  const [pivot,s1,r1]=Pivots(last);
-  const psar=ParabolicSAR(view);
-  const adx14=ADX(14,view);
-  const [stK,stD]=Stochastic(14,view,sym);
+  const sma14 = SMA(14, view); 
+  const ema14 = EMA(14, view);
+  const [macd, signal, hist] = MACD(view);
+  const rsi14 = RSI(14, view);
+  const [bbMid, bbU, bbL] = Bollinger(20, view);
+  const atr14 = ATR(14, view);
+  const [dcH, dcL] = Donchian(20, view);
+  const vwap = VWAP(view);
+  const obv = OBV(view);
+  const [pivot, s1, r1] = Pivots(last);
+  const psar = ParabolicSAR(view);
+  const adx14 = ADX(14, view);
+  const [stK, stD] = Stochastic(14, view, sym);
 
   // === BUY signal rules ===
-  const trendUp = (ema14!=null&&sma14!=null) && ema14>sma14;
-  const macdBull = macd!=null && signal!=null && macd>signal && (hist||0)>0;
-  const rsiBull = (rsi14||0) >= 55;
-  const priceAboveBBmid = bbMid!=null && last.close > bbMid;
-  const psarBull = psar!=null && last.close > psar;
-  const adxOk = (adx14||0) >= 18;
-  const stochUp = stK!=null && stD!=null && stK > stD && stK < 85;
-  const aboveVWAP = vwap!=null && last.close > vwap;
-  const abovePivot = pivot!=null && last.close > pivot;
-  const donchianNearHigh = (dcH!=null) && (last.close > (dcH + dcL)/2);
-  const obvNotFalling = (obv||0) >= 0;
+  const trendUp = (ema14 != null && sma14 != null) && ema14 > sma14;
+  const macdBull = macd != null && signal != null && macd > signal && (hist || 0) > 0;
+  const rsiBull = (rsi14 || 0) >= 55;
+  const priceAboveBBmid = bbMid != null && last.close > bbMid;
+  const psarBull = psar != null && last.close > psar;
+  const adxOk = (adx14 || 0) >= 18;
+  const stochUp = stK != null && stD != null && stK > stD && stK < 85;
+  const aboveVWAP = vwap != null && last.close > vwap;
+  const abovePivot = pivot != null && last.close > pivot;
+  const donchianNearHigh = (dcH != null) && (last.close > (dcH + dcL) / 2);
+  const obvNotFalling = (obv || 0) >= 0;
 
   const ok = trendUp && macdBull && rsiBull && priceAboveBBmid && psarBull &&
              adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvNotFalling;
@@ -573,8 +573,8 @@ function evaluateBuyAlert(sym){
     const entry = last.close;
 
     // === ATR-based TP/SL with fallback to indicator levels ===
-    const rr = 2;          // Risk:Reward ratio (e.g. 1:2)
-    const atrMult = 1.5;   // ATR multiplier for SL distance
+    const rr = 3;          // Risk:Reward ratio (1:3)
+    const atrMult = 2;     // ATR multiplier for SL distance
 
     let stopLoss = psar || dcL || bbL;
     let takeProfit = dcH || bbU || r1;
@@ -594,6 +594,13 @@ function evaluateBuyAlert(sym){
     }
 
     takeProfit = targetTP;
+
+    // ✅ Check TP/SL gap (skip if too small)
+    const gap = takeProfit - stopLoss;
+    if (gap < atr14) {
+      pushLog(`⚠️ ${sym} gap too small (${fmt(gap)} < ATR14=${fmt(atr14)}) — skip BUY`);
+      return; // skip small-gap trade
+    }
 
     // Save trade
     per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs };
@@ -620,6 +627,7 @@ ATR14: ${fmt(atr14)} | R:R=${rr}:1`;
   }
 }
 </script>
+
 
 
 
