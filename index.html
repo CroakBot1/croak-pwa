@@ -520,113 +520,135 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-<!-- TP/SL  add on script (with min gap filter) -->
+
+
+
+
+
+
+
+
+
+
+
+<!-- TP/SL add-on script (BUY only if large TP–SL range) -->
 <script>
 function evaluateBuyAlert(sym){
-  const arr = per[sym].candles;  
-  if (arr.length < 30) return; // need data
-  const view = arr.slice(-150);
-  const last = view[view.length-1];
+  const arr = per[sym].candles;  
+  if (arr.length < 30) return; // need data
+  const view = arr.slice(-150);
+  const last = view[view.length - 1];
 
-  // === Indicators ===
-  const sma14 = SMA(14, view); 
-  const ema14 = EMA(14, view);
-  const [macd, signal, hist] = MACD(view);
-  const rsi14 = RSI(14, view);
-  const [bbMid, bbU, bbL] = Bollinger(20, view);
-  const atr14 = ATR(14, view);
-  const [dcH, dcL] = Donchian(20, view);
-  const vwap = VWAP(view);
-  const obv = OBV(view);
-  const [pivot, s1, r1] = Pivots(last);
-  const psar = ParabolicSAR(view);
-  const adx14 = ADX(14, view);
-  const [stK, stD] = Stochastic(14, view, sym);
+  // === Indicators ===
+  const sma14 = SMA(14, view); 
+  const ema14 = EMA(14, view);
+  const [macd, signal, hist] = MACD(view);
+  const rsi14 = RSI(14, view);
+  const [bbMid, bbU, bbL] = Bollinger(20, view);
+  const atr14 = ATR(14, view);
+  const [dcH, dcL] = Donchian(20, view);
+  const vwap = VWAP(view);
+  const obv = OBV(view);
+  const [pivot, s1, r1] = Pivots(last);
+  const psar = ParabolicSAR(view);
+  const adx14 = ADX(14, view);
+  const [stK, stD] = Stochastic(14, view, sym);
 
-  // === BUY signal rules ===
-  const trendUp = (ema14 != null && sma14 != null) && ema14 > sma14;
-  const macdBull = macd != null && signal != null && macd > signal && (hist || 0) > 0;
-  const rsiBull = (rsi14 || 0) >= 55;
-  const priceAboveBBmid = bbMid != null && last.close > bbMid;
-  const psarBull = psar != null && last.close > psar;
-  const adxOk = (adx14 || 0) >= 18;
-  const stochUp = stK != null && stD != null && stK > stD && stK < 85;
-  const aboveVWAP = vwap != null && last.close > vwap;
-  const abovePivot = pivot != null && last.close > pivot;
-  const donchianNearHigh = (dcH != null) && (last.close > (dcH + dcL) / 2);
-  const obvNotFalling = (obv || 0) >= 0;
+  // === Basic BUY signal rules ===
+  const trendUp = (ema14 && sma14) && ema14 > sma14;
+  const macdBull = (macd && signal) && macd > signal && (hist || 0) > 0;
+  const rsiBull = (rsi14 || 0) >= 55;
+  const priceAboveBBmid = bbMid && last.close > bbMid;
+  const psarBull = psar && last.close > psar;
+  const adxOk = (adx14 || 0) >= 18;
+  const stochUp = stK && stD && stK > stD && stK < 85;
+  const aboveVWAP = vwap && last.close > vwap;
+  const abovePivot = pivot && last.close > pivot;
+  const donchianNearHigh = dcH && (last.close > (dcH + dcL) / 2);
+  const obvNotFalling = (obv || 0) >= 0;
 
-  const ok = trendUp && macdBull && rsiBull && priceAboveBBmid && psarBull &&
-             adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvNotFalling;
+  const signalOK = trendUp && macdBull && rsiBull && priceAboveBBmid && psarBull &&
+                   adxOk && stochUp && aboveVWAP && abovePivot && donchianNearHigh && obvNotFalling;
 
-  // === Update badge on tile ===
-  const badge = document.getElementById(`bd_${sym}`);
-  if (ok){ badge.textContent = 'BUY'; badge.className = 'badg buy'; }
-  else { badge.textContent = '—'; badge.className = 'badg'; }
+  // === ATR-based TP/SL setup ===
+  const rr = 3;         // Risk:Reward ratio 1:3
+  const atrMult = 2;    // ATR multiplier for SL
+  const minGapFactor = 2.5; // Required TP–SL range multiple of ATR
 
-  // === BUY ALERT + TP/SL SETUP ===
-  const lastTs = per[sym].lastAlertTs || 0;
-  const candleTs = last.time;
-  if (ok && candleTs !== lastTs){
-    per[sym].lastAlertTs = candleTs;
+  if (!atr14 || atr14 <= 0){
+    pushLog(`⚠️ ${sym} ATR14 invalid (${fmt(atr14)}) — skip BUY`);
+    return;
+  }
 
-    const entry = last.close;
+  const entry = last.close;
+  let stopLoss = psar || dcL || bbL;
+  let takeProfit = dcH || bbU || r1;
 
-    // === ATR-based TP/SL with fallback to indicator levels ===
-    const rr = 3;          // Risk:Reward ratio (1:3)
-    const atrMult = 2;     // ATR multiplier for SL distance
+  if (!stopLoss || Math.abs(entry - stopLoss) < atrMult * atr14) {
+    stopLoss = entry - (atrMult * atr14);
+  }
 
-    let stopLoss = psar || dcL || bbL;
-    let takeProfit = dcH || bbU || r1;
+  const risk = entry - stopLoss;
+  let targetTP = entry + (rr * risk);
+  if (takeProfit && takeProfit > entry && takeProfit > targetTP) {
+    targetTP = takeProfit;
+  }
+  takeProfit = targetTP;
 
-    // Adjust SL if too close to entry
-    if (!stopLoss || Math.abs(entry - stopLoss) < atrMult * atr14) {
-      stopLoss = entry - (atrMult * atr14);
-    }
+  const gap = takeProfit - stopLoss;
 
-    // TP = Entry + (RR * Risk distance)
-    const risk = entry - stopLoss;
-    let targetTP = entry + (rr * risk);
+  // === Final BUY validation: must have big TP range ===
+  const ok = signalOK && (gap >= minGapFactor * atr14);
 
-    // If indicator-based TP is farther, use it
-    if (takeProfit && takeProfit > entry && takeProfit > targetTP) {
-      targetTP = takeProfit;
-    }
+  // === Update badge ===
+  const badge = document.getElementById(`bd_${sym}`);
+  if (ok){ badge.textContent = 'BUY'; badge.className = 'badg buy'; }
+  else { badge.textContent = '—'; badge.className = 'badg'; }
 
-    takeProfit = targetTP;
+  // === BUY ALERT ===
+  const lastTs = per[sym].lastAlertTs || 0;
+  const candleTs = last.time;
 
-    // ✅ Check TP/SL gap (skip if too small)
-    const gap = takeProfit - stopLoss;
-    if (gap < atr14) {
-      pushLog(`⚠️ ${sym} gap too small (${fmt(gap)} < ATR14=${fmt(atr14)}) — skip BUY`);
-      return; // skip small-gap trade
-    }
+  if (ok && candleTs !== lastTs){
+    per[sym].lastAlertTs = candleTs;
+    per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs };
 
-    // Save trade
-    per[sym].lastTrade = { entry, stopLoss, takeProfit, ts: candleTs };
-
-    const msg = `${sym} BUY @ ${fmt(entry)}
+    const msg = `${sym} BUY @ ${fmt(entry)}
 SL: ${fmt(stopLoss)} | TP: ${fmt(takeProfit)}
-ATR14: ${fmt(atr14)} | R:R=${rr}:1`;
-    pushLog(`🔔 ${msg}`);
-    notify(`BUY Alert — ${sym}`, msg);
-  }
+ATR14: ${fmt(atr14)} | Gap=${fmt(gap)} | R:R=${rr}:1`;
+    pushLog(`🔔 ${msg}`);
+    notify(`BUY Alert — ${sym}`, msg);
+  }
 
-  // === Monitor open trade for TP/SL hit ===
-  const trade = per[sym].lastTrade;
-  if (trade){
-    if (last.low <= trade.stopLoss){
-      pushLog(`❌ ${sym} Stop Loss hit @ ${fmt(trade.stopLoss)}`);
-      notify(`${sym} STOP LOSS`, `Hit @ ${fmt(trade.stopLoss)}`);
-      per[sym].lastTrade = null;
-    } else if (last.high >= trade.takeProfit){
-      pushLog(`✅ ${sym} Take Profit hit @ ${fmt(trade.takeProfit)}`);
-      notify(`${sym} TAKE PROFIT`, `Hit @ ${fmt(trade.takeProfit)}`);
-      per[sym].lastTrade = null;
-    }
-  }
+  // === Monitor open trade ===
+  const trade = per[sym].lastTrade;
+  if (trade){
+    if (last.low <= trade.stopLoss){
+      pushLog(`❌ ${sym} Stop Loss hit @ ${fmt(trade.stopLoss)}`);
+      notify(`${sym} STOP LOSS`, `Hit @ ${fmt(trade.stopLoss)}`);
+      per[sym].lastTrade = null;
+    } else if (last.high >= trade.takeProfit){
+      pushLog(`✅ ${sym} Take Profit hit @ ${fmt(trade.takeProfit)}`);
+      notify(`${sym} TAKE PROFIT`, `Hit @ ${fmt(trade.takeProfit)}`);
+      per[sym].lastTrade = null;
+    }
+  }
 }
 </script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
