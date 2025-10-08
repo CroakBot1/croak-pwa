@@ -983,47 +983,55 @@ function drawChart(scrollToEnd=false){
 
 
 
-<!-- === AI Loading Overlay === -->
+<!-- AI Loading Overlay -->
+<div id="aiLoadingOverlay">
+  <div class="loader"></div>
+  <p>🧠 AI finding for your entry…</p>
+</div>
+
 <style>
 #aiLoadingOverlay {
   position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.92);
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.88);
+  color: #00ff84;
+  font-family: monospace;
+  font-size: 20px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  color: #00ffcc;
-  font-family: ui-monospace, monospace;
-  font-size: 20px;
-  z-index: 99999;
-  transition: opacity 0.6s ease;
+  z-index: 999999;
 }
-#aiLoadingOverlay.hidden { opacity: 0; pointer-events: none; }
-#aiLoadingDots {
-  margin-top: 10px;
-  display: inline-block;
-  letter-spacing: 2px;
-  animation: blink 1.2s infinite;
+.loader {
+  border: 4px solid #333;
+  border-top: 4px solid #00ff84;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 12px;
 }
-@keyframes blink {
-  0%, 100% { opacity: 0.2; }
-  50% { opacity: 1; }
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style>
 
-<div id="aiLoadingOverlay">
-  🤖 <span>AI is finding entry</span><span id="aiLoadingDots">...</span>
-</div>
-
 <script>
-// Simple loader hide logic
-window.addEventListener("load", () => {
-  setTimeout(() => {
-    const overlay = document.getElementById("aiLoadingOverlay");
-    overlay.classList.add("hidden");
-    setTimeout(() => overlay.remove(), 800); // remove after fade
-  }, 2500); // show at least 2.5s
-});
+// Preserve original alert()
+(function() {
+  const originalAlert = window.alert;
+  const overlay = document.getElementById("aiLoadingOverlay");
+
+  // When alert is called, hide overlay temporarily
+  window.alert = function(msg) {
+    if (overlay) overlay.style.display = "none";
+    // Call original alert
+    originalAlert(msg);
+    // After alert is closed, show overlay again
+    if (overlay) overlay.style.display = "flex";
+  };
+})();
 </script>
-<!-- === END AI Loading Overlay === -->
+
