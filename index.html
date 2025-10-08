@@ -727,6 +727,165 @@ function startCombinedWS(){
 
 
 
+<!--- STRICT LONG/SHORT ENTRY TP/SL (1m + 3m + 5m confirmation) --->
+<script>
+const trades = {}; // track active trades per symbol
+
+function evaluateTradeSignals(sym){
+  const st1 = per1m[sym]; // 1-minute candles
+  const st3 = per3m[sym]; // 3-minute candles
+  const st5 = per5m[sym]; // 5-minute candles
+
+  if(!st1 || !st3 || !st5) return;
+  if(st1.candles.length < 500 || st3.candles.length < 1000 || st5.candles.length < 1000) return;
+  if(!trades[sym]) trades[sym] = [];
+
+  const arr1 = st1.candles, arr3 = st3.candles, arr5 = st5.candles;
+  const last1 = arr1[arr1.length-1], last3 = arr3[arr3.length-1];
+
+  const view1 = arr1.slice(-150), view3 = arr3.slice(-200), view5 = arr5.slice(-200);
+
+  // === Indicators ===
+  const ema14_1 = EMA(14, view1), sma14_1 = SMA(14, view1);
+  const [macd1, signal1, hist1] = MACD(view1);
+  const rsi14_1 = RSI(14, view1);
+  const adx14_1 = ADX(14, view1);
+
+  const ema14_3 = EMA(14, view3), sma14_3 = SMA(14, view3);
+  const [macd3, signal3, hist3] = MACD(view3);
+  const rsi14_3 = RSI(14, view3);
+  const [bbMid3, bbU3, bbL3] = Bollinger(20, view3);
+  const atr14_3 = ATR(14, view3);
+  const [dcH3, dcL3] = Donchian(20, view3);
+  const vwap3 = VWAP(view3);
+  const psar3 = ParabolicSAR(view3);
+  const adx14_3 = ADX(14, view3);
+  const [stK3, stD3] = Stochastic(14, view3, sym);
+  const [pivot3] = Pivots(last3);
+
+  const ema14_5 = EMA(14, view5), sma14_5 = SMA(14, view5);
+  const [macd5, signal5, hist5] = MACD(view5);
+  const adx14_5 = ADX(14, view5);
+  const rsi14_5 = RSI(14, view5);
+
+  // === Volatility filters ===
+  const avgATR3 = view3.slice(-30).reduce((a,c)=>a+ATR(14,view3),0)/30;
+  const enoughVolatility = atr14_3 > avgATR3 * 1.15;
+  const potentialRange = Math.abs(dcH3 - dcL3) > atr14_3 * 3;
+
+  const atrMult = 1.4;
+  const rrRatio = 2.8;
+
+  // === Trend confirmations ===
+  const trendUp5 = ema14_5 > sma14_5 && macd5 > signal5 && hist5 > 0 && adx14_5 >= 22 && rsi14_5 > 55;
+  const trendDn5 = ema14_5 < sma14_5 && macd5 < signal5 && hist5 < 0 && adx14_5 >= 22 && rsi14_5 < 45;
+
+  const trendUp3 = ema14_3 > sma14_3 && macd3 > signal3 && hist3 > 0.15*Math.abs(signal3) && adx14_3 >= 25;
+  const trendDn3 = ema14_3 < sma14_3 && macd3 < signal3 && hist3 < -0.15*Math.abs(signal3) && adx14_3 >= 25;
+
+  const trendUp1 = ema14_1 > sma14_1 && macd1 > signal1 && hist1 > 0 && adx14_1 >= 18;
+  const trendDn1 = ema14_1 < sma14_1 && macd1 < signal1 && hist1 < 0 && adx14_1 >= 18;
+
+  // === Strict entry filters ===
+  const longCond =
+    trendUp1 && trendUp3 && trendUp5 &&
+    rsi14_3 >= 58 && rsi14_3 <= 75 &&
+    last3.close > bbMid3 && last3.close > psar3 &&
+    stK3 > stD3 && stK3 < 80 &&
+    last3.close > vwap3 && last3.close > pivot3 &&
+    last3.close > dcH3 * 0.995 &&
+    enoughVolatility && potentialRange;
+
+  const shortCond =
+    trendDn1 && trendDn3 && trendDn5 &&
+    rsi14_3 <= 42 && rsi14_3 >= 25 &&
+    last3.close < bbMid3 && last3.close < psar3 &&
+    stK3 < stD3 && stK3 > 20 &&
+    last3.close < vwap3 && last3.close < pivot3 &&
+    last3.close < dcL3 * 1.005 &&
+    enoughVolatility && potentialRange;
+
+  // === Compute TP/SL ===
+  let tp = null, sl = null;
+  if(longCond){ sl = last3.close - atr14_3*atrMult; tp = last3.close + atr14_3*atrMult*rrRatio; }
+  if(shortCond){ sl = last3.close + atr14_3*atrMult; tp = last3.close - atr14_3*atrMult*rrRatio; }
+
+  const badge = document.getElementById(`bd_${sym}`);
+
+  // === Record new trades ===
+  if((longCond || shortCond) && (!trades[sym].length || trades[sym][trades[sym].length-1].openCandle !== last3.time)){
+    const type = longCond ? 'LONG' : 'SHORT';
+    trades[sym].push({ type, entry: last3.close, sl, tp, openCandle: last3.time });
+    if(trades[sym].length > 10) trades[sym].shift();
+
+    badge.textContent = type;
+    badge.className = 'badg ' + (type==='LONG'?'buy':'warn');
+
+    const msg = `${sym} ${type} ENTRY @ ${fmt(last3.close)} | TP ${fmt(tp)} | SL ${fmt(sl)} (1m+3m+5m confirmed)`;
+    pushLog(`🔔 ${msg}`);
+    notify(`${type} Alert — ${sym}`, msg);
+  }
+
+  // === Check TP/SL ===
+  trades[sym] = trades[sym].filter(t => {
+    const hitTP = (t.type==='LONG' && last3.high >= t.tp) || (t.type==='SHORT' && last3.low <= t.tp);
+    const hitSL = (t.type==='LONG' && last3.low <= t.sl) || (t.type==='SHORT' && last3.high >= t.sl);
+
+    if(hitTP){
+      pushLog(`✅ ${sym} ${t.type} TP HIT @ ${fmt(t.tp)}`);
+      notify(`${t.type} TP Hit — ${sym}`, `TP @ ${fmt(t.tp)}`);
+      badge.textContent = 'TP HIT';
+      badge.className = 'badg green';
+    }
+    if(hitSL){
+      pushLog(`❌ ${sym} ${t.type} SL HIT @ ${fmt(t.sl)}`);
+      notify(`${t.type} SL Hit — ${sym}`, `SL @ ${fmt(t.sl)}`);
+      badge.textContent = 'SL HIT';
+      badge.className = 'badg red';
+    }
+
+    return !(hitTP || hitSL);
+  });
+}
+
+// === WebSocket handling (same as before) ===
+function startCombinedWS(){
+  if(ws) try{ ws.close(); }catch{}
+  const streams = SYMBOLS.map(s => `${s.toLowerCase()}@kline_${INTERVAL}`).join('/');
+  const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
+  ws = new WebSocket(url);
+
+  ws.onopen = ()=>{ liveEl.textContent = 'Live: connected'; pushLog('✅ Combined WebSocket connected.'); };
+  ws.onerror = ()=>{ liveEl.textContent = 'Live: error'; pushLog('❌ WebSocket error'); };
+  ws.onclose = ()=>{ liveEl.textContent = 'Live: closed'; pushLog('⚠️ WebSocket closed. Reconnecting…'); setTimeout(startCombinedWS, 1500); };
+
+  ws.onmessage = (ev)=>{
+    if(livePaused) return;
+    const msg = JSON.parse(ev.data);
+    if (!msg || !msg.data || !msg.data.k) return;
+    const k = msg.data.k; const sym = msg.data.s || k.s || msg.stream?.split('@')[0].toUpperCase();
+    const st = per1m[sym]; if(!st) return;
+
+    const incoming = { time:k.t, open:+k.o, high:+k.h, low:+k.l, close:+k.c, volume:+k.v };
+    const arr = st.candles;
+    const last = arr[arr.length-1];
+    const sameBar = last && last.time === incoming.time;
+    if (sameBar) arr[arr.length-1] = incoming; else { arr.push(incoming); per1m[sym].lastWsCandleTs = incoming.time; }
+    st.candles = clampStore(arr);
+
+    if(sym === active){
+      const ts = new Date(incoming.time).toLocaleTimeString();
+      const delta = (last ? incoming.close - last.close : 0);
+      pushLog(`${sameBar ? '⚡' : '🟢'} ${sym} [${ts}] O:${fmt(incoming.open)} H:${fmt(incoming.high)} L:${fmt(incoming.low)} C:${fmt(incoming.close)} (Δ ${fmt(delta)}) V:${fmt(incoming.volume,0)}`);
+      drawChart();
+      updateIndicators(sym);
+    }
+
+    drawSpark(sym);
+    evaluateTradeSignals(sym);
+  };
+}
+</script>
 
 
 
