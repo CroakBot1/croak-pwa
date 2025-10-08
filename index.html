@@ -983,8 +983,10 @@ function drawChart(scrollToEnd=false){
 
 
 
+
+
 <!-- AI Loading Overlay -->
-<div id="aiLoadingOverlay">
+<div id="aiLoadingOverlay" style="display:none;">
   <div class="loader"></div>
   <p>🧠 AI finding for your entry…</p>
 </div>
@@ -1023,15 +1025,26 @@ function drawChart(scrollToEnd=false){
 (function() {
   const originalAlert = window.alert;
   const overlay = document.getElementById("aiLoadingOverlay");
+  const loginOverlay = document.getElementById("loginOverlay");
 
   // When alert is called, hide overlay temporarily
   window.alert = function(msg) {
     if (overlay) overlay.style.display = "none";
-    // Call original alert
     originalAlert(msg);
-    // After alert is closed, show overlay again
-    if (overlay) overlay.style.display = "flex";
+    // Only show again if login overlay is already hidden
+    if (overlay && loginOverlay && loginOverlay.style.display === "none") {
+      overlay.style.display = "flex";
+    }
   };
+
+  // Listen for login overlay being hidden to show AI overlay
+  const observer = new MutationObserver(() => {
+    if (loginOverlay.style.display === "none") {
+      overlay.style.display = "flex";
+    } else {
+      overlay.style.display = "none";
+    }
+  });
+  observer.observe(loginOverlay, { attributes: true, attributeFilter: ["style"] });
 })();
 </script>
-
