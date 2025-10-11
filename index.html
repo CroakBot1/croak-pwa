@@ -713,6 +713,165 @@ function startCombinedWS(){
 
 
 
+<!-- === OPTIONS PANEL === -->
+<style>
+#tradeOptions {
+  position: fixed; top: 10px; right: 10px;
+  background: #111; color: #eee;
+  border-radius: 12px; padding: 12px 16px;
+  box-shadow: 0 0 10px #0007;
+  font-family: monospace; z-index: 9999;
+}
+#tradeOptions select, #tradeOptions input {
+  background: #222; color: #fff; border: 1px solid #333;
+  border-radius: 6px; padding: 4px; margin-left: 6px;
+}
+#tradeOptions label { display:block; margin:4px 0; }
+</style>
+
+<div id="tradeOptions">
+  <label>⚙️ Trade Mode:
+    <select id="modeSelect">
+      <option value="scalp">Scalping (1m+3m+5m)</option>
+      <option value="daily">Daily Trade (1h+4h+1d)</option>
+    </select>
+  </label>
+
+  <label>🎯 Position:
+    <select id="posSelect">
+      <option value="both">Both Long & Short</option>
+      <option value="long">Long Only</option>
+      <option value="short">Short Only</option>
+    </select>
+  </label>
+
+  <label>💰 ATR Multiplier (SL):
+    <input type="number" id="atrMult" step="0.1" value="1.4" style="width:70px">
+  </label>
+  <label>💎 RR (TP ratio):
+    <input type="number" id="rrMult" step="0.1" value="2.8" style="width:70px">
+  </label>
+</div>
+
+<script>
+// === GLOBAL OPTIONS ===
+const tradeOptions = {
+  mode: 'scalp',       // scalp or daily
+  pos: 'both',         // long / short / both
+  atrMult: 1.4,
+  rrMult: 2.8
+};
+
+// === LISTENERS ===
+document.getElementById('modeSelect').onchange = e=>{
+  tradeOptions.mode = e.target.value;
+  pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
+  if(tradeOptions.mode==='daily') preloadHigherTF();
+  else preloadMultiTF();
+};
+document.getElementById('posSelect').onchange = e=>{
+  tradeOptions.pos = e.target.value;
+  pushLog(`⚙️ Position filter: ${tradeOptions.pos}`);
+};
+document.getElementById('atrMult').onchange = e=>{
+  tradeOptions.atrMult = parseFloat(e.target.value);
+};
+document.getElementById('rrMult').onchange = e=>{
+  tradeOptions.rrMult = parseFloat(e.target.value);
+};
+
+// === EXTRA TIMEFRAMES FOR DAILY MODE ===
+const per1h = {}, per4h = {}, per1d = {};
+async function preloadHigherTF(){
+  for(const s of SYMBOLS){
+    await Promise.all([
+      fetchHistory(s, '1h', 1000, per1h),
+      fetchHistory(s, '4h', 1000, per4h),
+      fetchHistory(s, '1d', 1000, per1d)
+    ]);
+    await sleep(100);
+  }
+  pushLog("✅ Loaded 1h + 4h + 1d datasets for all symbols");
+}
+
+// === MODIFIED EVALUATION CALL ===
+function evaluateTradeSignals(sym){
+  const mode = tradeOptions.mode;
+  const atrMult = tradeOptions.atrMult;
+  const rr = tradeOptions.rrMult;
+
+  // choose timeframe sets
+  let tf1, tf2, tf3;
+  if(mode==='daily'){ tf1=per1h; tf2=per4h; tf3=per1d; }
+  else { tf1=per1m; tf2=per3m; tf3=per5m; }
+
+  const st1=tf1[sym], st2=tf2[sym], st3=tf3[sym];
+  if(!st1||!st2||!st3) return;
+  if(st1.candles.length<200 || st2.candles.length<200 || st3.candles.length<200) return;
+  if(!trades[sym]) trades[sym]=[];
+
+  const arr1=st1.candles, arr2=st2.candles, arr3=st3.candles;
+  const last3=arr3[arr3.length-1];
+
+  // === Basic trend check (reuse your same indicators) ===
+  const ema14_1=EMA(14,arr1), sma14_1=SMA(14,arr1);
+  const ema14_2=EMA(14,arr2), sma14_2=SMA(14,arr2);
+  const ema14_3=EMA(14,arr3), sma14_3=SMA(14,arr3);
+
+  const [macd1,sig1,hist1]=MACD(arr1);
+  const [macd2,sig2,hist2]=MACD(arr2);
+  const [macd3,sig3,hist3]=MACD(arr3);
+
+  const adx3=ADX(14,arr3), rsi3=RSI(14,arr3), atr3=ATR(14,arr3);
+
+  const up = ema14_1>sma14_1 && ema14_2>sma14_2 && ema14_3>sma14_3 &&
+             macd1>sig1 && macd2>sig2 && macd3>sig3 && adx3>22 && rsi3>55;
+  const dn = ema14_1<sma14_1 && ema14_2<sma14_2 && ema14_3<sma14_3 &&
+             macd1<sig1 && macd2<sig2 && macd3<sig3 && adx3>22 && rsi3<45;
+
+  let tp=null, sl=null, longCond=false, shortCond=false;
+
+  if(up && (tradeOptions.pos==='both'||tradeOptions.pos==='long')){
+    longCond=true;
+    sl=last3.close - atr3*atrMult;
+    tp=last3.close + atr3*atrMult*rr;
+  }
+  if(dn && (tradeOptions.pos==='both'||tradeOptions.pos==='short')){
+    shortCond=true;
+    sl=last3.close + atr3*atrMult;
+    tp=last3.close - atr3*atrMult*rr;
+  }
+
+  const badge=document.getElementById(`bd_${sym}`);
+  if((longCond||shortCond)&&(!trades[sym].length||trades[sym][trades[sym].length-1].openCandle!==last3.time)){
+    const type=longCond?'LONG':'SHORT';
+    trades[sym].push({type,entry:last3.close,sl,tp,openCandle:last3.time});
+    if(trades[sym].length>10) trades[sym].shift();
+    badge.textContent=type;
+    badge.className='badg '+(type==='LONG'?'buy':'warn');
+    const msg=`${sym} ${type} ENTRY @ ${fmt(last3.close)} | TP ${fmt(tp)} | SL ${fmt(sl)} (${mode.toUpperCase()} mode)`;
+    pushLog(`🔔 ${msg}`);
+    notify(`${type} Alert — ${sym}`, msg);
+  }
+
+  // === TP/SL Check (same logic) ===
+  trades[sym] = trades[sym].filter(t=>{
+    const hitTP=(t.type==='LONG'&&last3.high>=t.tp)||(t.type==='SHORT'&&last3.low<=t.tp);
+    const hitSL=(t.type==='LONG'&&last3.low<=t.sl)||(t.type==='SHORT'&&last3.high>=t.sl);
+    if(hitTP){pushLog(`✅ ${sym} ${t.type} TP HIT @ ${fmt(t.tp)}`); badge.textContent='TP HIT'; badge.className='badg green';}
+    if(hitSL){pushLog(`❌ ${sym} ${t.type} SL HIT @ ${fmt(t.sl)}`); badge.textContent='SL HIT'; badge.className='badg red';}
+    return !(hitTP||hitSL);
+  });
+}
+</script>
+
+
+
+
+
+
+
+
 
 
 
