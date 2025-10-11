@@ -719,6 +719,22 @@ function startCombinedWS(){
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <!-- === OPTIONS PANEL === -->
 <style>
 #tradeOptions {
@@ -760,17 +776,7 @@ function startCombinedWS(){
 </div>
 
 <script>
-// ===========================================================
-// COMBINED SCALPING (1m+3m+5m) + DAILY (1h+4h+1d) SYSTEM
-// ===========================================================
-
-// === DATA STORES ===
-const per1m = per;  // reuse existing 1m data
-const per3m = {}, per5m = {};
-const per1h = {}, per4h = {}, per1d = {};
-const trades = {}; // track active trades per symbol
-
-// === OPTIONS ===
+// === GLOBAL OPTIONS ===
 const tradeOptions = {
   mode: 'scalp',       // scalp or daily
   pos: 'both',         // long / short / both
@@ -778,7 +784,7 @@ const tradeOptions = {
   rrMult: 2.8
 };
 
-// === UI LISTENERS ===
+// === LISTENERS ===
 document.getElementById('modeSelect').onchange = e=>{
   tradeOptions.mode = e.target.value;
   pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
@@ -796,29 +802,8 @@ document.getElementById('rrMult').onchange = e=>{
   tradeOptions.rrMult = parseFloat(e.target.value);
 };
 
-// === FETCH HELPERS ===
-async function fetchHistory(sym, interval, limit, target){
-  const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`;
-  try{
-    const res = await fetch(url);
-    const raw = await res.json();
-    target[sym] = { candles: raw.map(k=>({
-      time:k[0], open:+k[1], high:+k[2], low:+k[3], close:+k[4], volume:+k[5]
-    })) };
-  }catch(e){ console.warn(`⚠️ Error fetching ${interval} data for ${sym}`, e); }
-}
-
-async function preloadMultiTF(){
-  for(const s of SYMBOLS){
-    await Promise.all([
-      fetchHistory(s, '3m', 1000, per3m),
-      fetchHistory(s, '5m', 1000, per5m)
-    ]);
-    await sleep(100);
-  }
-  pushLog("✅ Loaded 3m + 5m datasets for all symbols");
-}
-
+// === EXTRA TIMEFRAMES FOR DAILY MODE ===
+const per1h = {}, per4h = {}, per1d = {};
 async function preloadHigherTF(){
   for(const s of SYMBOLS){
     await Promise.all([
@@ -831,11 +816,14 @@ async function preloadHigherTF(){
   pushLog("✅ Loaded 1h + 4h + 1d datasets for all symbols");
 }
 
-// === CORE EVALUATION ===
+// === MODIFIED EVALUATION CALL ===
 function evaluateTradeSignals(sym){
-  const { mode, pos, atrMult, rrMult } = tradeOptions;
-  let tf1, tf2, tf3;
+  const mode = tradeOptions.mode;
+  const atrMult = tradeOptions.atrMult;
+  const rr = tradeOptions.rrMult;
 
+  // choose timeframe sets
+  let tf1, tf2, tf3;
   if(mode==='daily'){ tf1=per1h; tf2=per4h; tf3=per1d; }
   else { tf1=per1m; tf2=per3m; tf3=per5m; }
 
@@ -847,6 +835,7 @@ function evaluateTradeSignals(sym){
   const arr1=st1.candles, arr2=st2.candles, arr3=st3.candles;
   const last3=arr3[arr3.length-1];
 
+  // === Basic trend check (reuse your same indicators) ===
   const ema14_1=EMA(14,arr1), sma14_1=SMA(14,arr1);
   const ema14_2=EMA(14,arr2), sma14_2=SMA(14,arr2);
   const ema14_3=EMA(14,arr3), sma14_3=SMA(14,arr3);
@@ -864,15 +853,15 @@ function evaluateTradeSignals(sym){
 
   let tp=null, sl=null, longCond=false, shortCond=false;
 
-  if(up && (pos==='both'||pos==='long')){
+  if(up && (tradeOptions.pos==='both'||tradeOptions.pos==='long')){
     longCond=true;
     sl=last3.close - atr3*atrMult;
-    tp=last3.close + atr3*atrMult*rrMult;
+    tp=last3.close + atr3*atrMult*rr;
   }
-  if(dn && (pos==='both'||pos==='short')){
+  if(dn && (tradeOptions.pos==='both'||tradeOptions.pos==='short')){
     shortCond=true;
     sl=last3.close + atr3*atrMult;
-    tp=last3.close - atr3*atrMult*rrMult;
+    tp=last3.close - atr3*atrMult*rr;
   }
 
   const badge=document.getElementById(`bd_${sym}`);
@@ -887,7 +876,7 @@ function evaluateTradeSignals(sym){
     notify(`${type} Alert — ${sym}`, msg);
   }
 
-  // === TP/SL Check ===
+  // === TP/SL Check (same logic) ===
   trades[sym] = trades[sym].filter(t=>{
     const hitTP=(t.type==='LONG'&&last3.high>=t.tp)||(t.type==='SHORT'&&last3.low<=t.tp);
     const hitSL=(t.type==='LONG'&&last3.low<=t.sl)||(t.type==='SHORT'&&last3.high>=t.sl);
