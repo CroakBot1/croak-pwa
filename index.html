@@ -578,729 +578,255 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-<script>
-  /* ===================================================================
-   UPGRADED Multi-TF Confirmation Trade System
-   Features:
-   - Weighted ensemble of indicators across 3 TFs
-   - Confidence scoring + debounce + cooldown per symbol
-   - Adaptive ATR for SL/TP and dynamic RR
-   - Risk % position sizing + partial TP ladder + trailing stop
-   - Indicator computation inside a WebWorker (non-blocking)
-   - Batched REST history loader with backoff
-   - Simple in-page UI controls & logs
-   - Lightweight backtester (scan historical signals)
-   NOTE: This file assumes SYMBOLS and initial per (1m) exist like your original.
-   =================================================================== */
 
-(() => {
-  /* ----------------------
-     Configuration
-     ---------------------- */
-  const CONFIG = {
-    mode: 'scalp', // 'scalp' or 'daily'
-    tfSets: {
-      scalp: ['1m','3m','5m'],
-      daily: ['1h','4h','1d']
-    },
-    indicatorWeights: { // weights for ensemble scoring (sum doesn't have to be 1)
-      emaTrend: 2,
-      macd: 1.5,
-      adx: 1.2,
-      rsi: 1,
-      stoch: 0.8,
-      vwap: 0.7
-    },
-    adxThreshold: 22,
-    minConfidence: 2.8, // score threshold to trigger a trade
-    debounceMs: 60*1000, // ignore repeated signals on same candle for this ms
-    cooldownMs: 5*60*1000, // after TP/SL, wait before re-entering same symbol
-    riskPercent: 0.5, // risk per trade as % of account
-    accountBalance: 10000, // initial account size (for position sizing)
-    atrMultiplierBase: 1.4,
-    rrTarget: 2.8,
-    partialTPs: [0.5, 1.25, 2.8], // multiples of ATR*atrMult (partial exits)
-    maxOpenPerSymbol: 1,
-    historyLimit: 1000,
-    batchFetchSize: 5, // number of symbols per parallel fetch group
-    binanceApiBase: 'https://api.binance.com/api/v3/klines'
-  };
+<!-- === 1m, 3m, 5m / 1h, 4h, 1day === -->
+<style>
+#tradeOptions {
+  position: fixed; top: 10px; right: 10px;
+  background: #111; color: #eee;
+  border-radius: 12px; padding: 12px 16px;
+  box-shadow: 0 0 10px #0007;
+  font-family: monospace; z-index: 9999;
+}
+#tradeOptions select, #tradeOptions input {
+  background: #222; color: #fff; border: 1px solid #333;
+  border-radius: 6px; padding: 4px; margin-left: 6px;
+}
+#tradeOptions label { display:block; margin:4px 0; }
+</style>
 
-  /* ----------------------
-     UI / Controls (minimal)
-     ---------------------- */
-  function addControlPanel(){
-    if(document.getElementById('upgradedPanel')) return;
-    const panel = document.createElement('div');
-    panel.id = 'upgradedPanel';
-    Object.assign(panel.style, {position:'fixed', right:'12px', top:'12px', zIndex:99999,
-      background:'#0f1724', color:'#e6eef8', padding:'12px', borderRadius:'8px', fontFamily:'sans-serif', width:'320px', boxShadow:'0 6px 24px rgba(2,6,23,0.6)'});
-    panel.innerHTML = `
-      <div style="font-weight:700;margin-bottom:6px">UPGRADED TRADE PANEL</div>
-      <label style="display:block;margin:6px 0">Mode:
-        <select id="up_mode" style="width:100%">
-          <option value="scalp">Scalp (1m/3m/5m)</option>
-          <option value="daily">Daily (1h/4h/1d)</option>
-        </select>
-      </label>
-      <label style="display:block;margin:6px 0">Risk %:
-        <input id="up_risk" type="number" value="${CONFIG.riskPercent}" step="0.1" style="width:60px">
-      </label>
-      <label style="display:block;margin:6px 0">ATR mult:
-        <input id="up_atr" type="number" value="${CONFIG.atrMultiplierBase}" step="0.1" style="width:60px">
-      </label>
-      <div style="margin-top:8px"><button id="up_forceScan">Force Historical Scan</button> <button id="up_backtest">Run Backtest</button></div>
-      <div id="up_log" style="margin-top:8px; max-height:200px; overflow:auto; font-size:12px; background:#051023; padding:6px; border-radius:6px"></div>
-    `;
-    document.body.appendChild(panel);
+<div id="tradeOptions">
+  <label>⚙️ Trade Mode:
+    <select id="modeSelect">
+      <option value="scalp">Scalping (1m+3m+5m)</option>
+      <option value="daily">Daily Trade (1h+4h+1d)</option>
+    </select>
+  </label>
 
-    document.getElementById('up_mode').value = CONFIG.mode;
-    document.getElementById('up_mode').onchange = e=>{
-      CONFIG.mode = e.target.value;
-      log(`Mode set -> ${CONFIG.mode}`);
-      preloadNeededTFs();
-    };
-    document.getElementById('up_risk').onchange = e=>{ CONFIG.riskPercent = parseFloat(e.target.value); log(`Risk -> ${CONFIG.riskPercent}%`); };
-    document.getElementById('up_atr').onchange = e=>{ CONFIG.atrMultiplierBase = parseFloat(e.target.value); log(`ATR mult -> ${CONFIG.atrMultiplierBase}`); };
-    document.getElementById('up_forceScan').onclick = ()=> { log('Forcing multi-TF reload...'); preloadNeededTFs(true); };
-    document.getElementById('up_backtest').onclick = ()=> { runFastBacktest(); };
-  }
+  <label>🎯 Position:
+    <select id="posSelect">
+      <option value="both">Both Long & Short</option>
+      <option value="long">Long Only</option>
+      <option value="short">Short Only</option>
+    </select>
+  </label>
 
-  /* ----------------------
-     Lightweight logger
-     ---------------------- */
-  function log(...args){
-    const el = document.getElementById('up_log');
-    if(!el) return console.log(...args);
-    const line = document.createElement('div');
-    line.textContent = `[${(new Date()).toLocaleTimeString()}] ` + args.join(' ');
-    el.prepend(line);
-    // limit lines
-    while(el.childElementCount > 600) el.removeChild(el.lastChild);
-    console.log(...args);
-  }
-
-  addControlPanel();
-
-  /* ----------------------
-     Worker for heavy indicator compute
-     ---------------------- */
-  const workerBlob = new Blob([`
-    // worker scope
-    self.onmessage = function(e){
-      const {task, payload} = e.data;
-      if(task === 'indicators'){
-        const candles = payload.candles;
-        // simple helpers (fast, array-based)
-        function SMA(arr, n){
-          const out = new Float64Array(arr.length);
-          let sum = 0, q = n;
-          for(let i=0;i<arr.length;i++){
-            sum += arr[i];
-            if(i>=n) sum -= arr[i-n];
-            out[i] = (i>=n-1) ? sum/n : NaN;
-          }
-          return out;
-        }
-        function EMAArray(arr, n){
-          const out = new Float64Array(arr.length);
-       	  const k = 2/(n+1);
-       	  let prev=arr[0];
-       	  for(let i=0;i<arr.length;i++){
-       	    if(i===0) { out[i]=arr[i]; prev=arr[i]; continue; }
-       	    prev = arr[i]*k + prev*(1-k);
-       	    out[i]=prev;
-       	  }
-       	  return out;
-        }
-        function ATR(high, low, close, n){
-          const out = new Float64Array(close.length);
-          let prevClose = close[0];
-          const trs = new Float64Array(close.length);
-          for(let i=0;i<close.length;i++){
-            if(i===0){ trs[i]=high[i]-low[i]; prevClose=close[i]; continue; }
-            trs[i] = Math.max(high[i]-low[i], Math.abs(high[i]-prevClose), Math.abs(low[i]-prevClose));
-            prevClose = close[i];
-          }
-          // SMA of TR as ATR (simple)
-          let sum=0;
-          for(let i=0;i<close.length;i++){
-            sum += trs[i];
-            if(i>=n) sum -= trs[i-n];
-            out[i] = (i>=n-1) ? sum/n : NaN;
-          }
-          return out;
-        }
-        // prepare arrays
-        const len = candles.length;
-        const open = new Float64Array(len), high = new Float64Array(len), low = new Float64Array(len), close = new Float64Array(len), vol = new Float64Array(len);
-        for(let i=0;i<len;i++){ open[i]=candles[i].open; high[i]=candles[i].high; low[i]=candles[i].low; close[i]=candles[i].close; vol[i]=candles[i].volume; }
-        const ema14 = EMAArray(close, 14);
-        const sma14 = SMA(close, 14);
-        const atr14 = ATR(high, low, close, 14);
-        // rudimentary MACD (12/26/9)
-        function MACD(close){
-          const e12 = EMAArray(close,12);
-          const e26 = EMAArray(close,26);
-          const macd = new Float64Array(len);
-          for(let i=0;i<len;i++) macd[i] = e12[i] - e26[i];
-          const sig = EMAArray(macd,9);
-          const hist = new Float64Array(len);
-          for(let i=0;i<len;i++) hist[i] = macd[i] - sig[i];
-          return {macd, sig, hist};
-        }
-        const macdObj = MACD(close);
-        // ADX (fast approximate, DI smoothing omitted for speed)
-        function ADX(high, low, close, n){
-          // we compute TR (use prev close), +DM, -DM, then ADX via smoothing (approx)
-          const len = close.length;
-          const tr = new Float64Array(len);
-          const pDM = new Float64Array(len), nDM = new Float64Array(len);
-          for(let i=1;i<len;i++){
-            const up = high[i] - high[i-1];
-            const dn = low[i-1] - low[i];
-            pDM[i] = (up>dn && up>0) ? up : 0;
-            nDM[i] = (dn>up && dn>0) ? dn : 0;
-            tr[i] = Math.max(high[i]-low[i], Math.abs(high[i]-close[i-1]), Math.abs(low[i]-close[i-1]));
-          }
-          // smooth by simple moving average (approx)
-          function MA(arr,n){
-            const out = new Float64Array(len); let sum=0;
-            for(let i=0;i<len;i++){
-              sum += arr[i];
-              if(i>=n) sum -= arr[i-n];
-              out[i] = (i>=n-1)? sum/n : NaN;
-            }
-            return out;
-          }
-          const atr = MA(tr,n), p = MA(pDM,n), m = MA(nDM,n);
-          const dx = new Float64Array(len);
-          for(let i=0;i<len;i++){
-            const plus = p[i], minus = m[i], trv = atr[i];
-            if(isNaN(trv) || trv===0) dx[i] = NaN;
-            else dx[i] = 100 * Math.abs(plus-minus)/trv;
-          }
-          // ADX as MA of DX
-          const adx = MA(dx,n);
-          return adx;
-        }
-        const adx14 = ADX(high, low, close, 14);
-        // RSI fast
-        function RSI(close, n){
-          const out = new Float64Array(len);
-          let gains=0, losses=0;
-          for(let i=1;i<len;i++){
-            const diff = close[i]-close[i-1];
-            gains += (diff>0)? diff:0;
-            losses += (diff<0)? -diff:0;
-            if(i>=n){
-              if(i>n){
-                const prevDiff = close[i-n+1]-close[i-n];
-                gains += (prevDiff>0)? prevDiff*-1 : 0; // adjust - but simple version
-              }
-              const rs = (losses===0)? 100 : (gains/losses);
-              out[i] = 100 - (100/(1+rs));
-            } else out[i] = NaN;
-          }
-          return out;
-        }
-        const rsi14 = RSI(close, 14);
-
-        // return last values and arrays for charting if needed
-        postMessage({
-          ok:true,
-          data: {
-            last: {
-              close: close[len-1],
-              ema14: ema14[len-1],
-              sma14: sma14[len-1],
-              atr14: atr14[len-1],
-              macd: macdObj.macd[len-1], macdSig: macdObj.sig[len-1],
-              adx: adx14[len-1], rsi: rsi14[len-1]
-            },
-            arrays: { ema14: Array.from(ema14.slice(-60)), macdHist: Array.from(macdObj.hist.slice(-60)) }
-          }
-        });
-      }
-    };
-  `], {type:'application/javascript'});
-
-  const worker = new Worker(URL.createObjectURL(workerBlob));
-
-  function computeIndicatorsWorker(candles){
-    return new Promise((resolve,reject)=>{
-      const timer = setTimeout(()=> reject(new Error('worker timeout')), 5000);
-      worker.onmessage = (ev) => {
-        clearTimeout(timer);
-        resolve(ev.data.data);
-      };
-      worker.postMessage({task:'indicators', payload:{candles}});
-    });
-  }
-
-  /* ----------------------
-     Data stores & trade management
-     ---------------------- */
-  const perTF = { '1m': per /* reuse existing 1m store */, '3m': {}, '5m': {}, '1h':{}, '4h':{}, '1d':{} };
-  const trades = {}; // trades per symbol (active)
-  const lastSignalAt = {}; // debounce timestamps
-  const cooldownUntil = {}; // after TP/SL
-  const badges = {}; // DOM badges if you want per-symbol UI
-
-  /* ----------------------
-     Helper: fetch historical klines (batched + retry/backoff)
-     ---------------------- */
-  async function fetchHistory(sym, interval, limit=CONFIG.historyLimit){
-    const url = `${CONFIG.binanceApiBase}?symbol=${sym}&interval=${interval}&limit=${limit}`;
-    let tries=0;
-    while(tries<3){
-      tries++;
-      try{
-        const r = await fetch(url);
-        if(!r.ok) throw new Error('http '+r.status);
-        const raw = await r.json();
-        return raw.map(k=>({ time:k[0], open:+k[1], high:+k[2], low:+k[3], close:+k[4], volume:+k[5] }));
-      }catch(e){
-        await new Promise(res=>setTimeout(res, 500 * tries));
-      }
-    }
-    throw new Error('Failed to fetch '+sym+' '+interval);
-  }
-
-  async function preloadNeededTFs(force=false){
-    const tfs = CONFIG.tfSets[CONFIG.mode];
-    const symbols = window.SYMBOLS || Object.keys(perTF['1m'] || {});
-    log('Loading TFs', tfs.join(','));
-    for(const tf of tfs){
-      if(tf === '1m') continue; // already have
-      for(let i=0;i<symbols.length;i+=CONFIG.batchFetchSize){
-        const batch = symbols.slice(i, i+CONFIG.batchFetchSize);
-        await Promise.all(batch.map(async s=>{
-          try{
-            if(!force && perTF[tf] && perTF[tf][s] && perTF[tf][s].candles && perTF[tf][s].candles.length>500) return;
-            const data = await fetchHistory(s, tf, CONFIG.historyLimit);
-            perTF[tf][s] = { candles: data };
-            log(`Loaded ${s} ${tf} (${data.length})`);
-            await new Promise(r=>setTimeout(r, 120)); // gentle
-          }catch(e){ log('Err load', s, tf, e.message); }
-        }));
-      }
-    }
-    log('TF preload complete');
-  }
-
-  /* ----------------------
-     Scoring / Signal logic
-     ---------------------- */
-  function scoreFromIndicators(indicators, candle){
-    // indicators.last contains: close, ema14, sma14, atr14, macd, macdSig, adx, rsi
-    const w = CONFIG.indicatorWeights;
-    let score = 0;
-    // EMA vs SMA trend
-    if(indicators.ema14 > indicators.sma14) score += w.emaTrend; else score -= w.emaTrend;
-    // MACD
-    if(indicators.macd > indicators.macdSig) score += w.macd; else score -= w.macd;
-    // ADX - trend strength adds absolute score (only if above threshold)
-    if(indicators.adx && indicators.adx > CONFIG.adxThreshold) score += w.adx * (indicators.adx/50);
-    // RSI zone
-    if(indicators.rsi > 55 && indicators.rsi < 80) score += w.rsi; 
-    if(indicators.rsi < 45 && indicators.rsi > 20) score -= w.rsi;
-    // VWAP / price bias approximate (use close relative to ema)
-    const vwapBias = (candle.close > indicators.ema14) ? 1 : -1;
-    score += w.vwap * vwapBias * 0.6;
-    // small macd histogram momentum (approx)
-    const macdMoment = indicators.macd - indicators.macdSig;
-    score += Math.sign(macdMoment) * Math.min(Math.abs(macdMoment)/Math.max(1, Math.abs(indicators.atr14||1)), 1) * w.macd * 0.5;
-
-    return score;
-  }
-
-  /* ----------------------
-     Evaluate a symbol across TFs and produce a signal
-     ---------------------- */
-  async function evaluateSymbol(sym){
-    try{
-      // choose TF windows
-      const tfs = CONFIG.tfSets[CONFIG.mode];
-      const stores = tfs.map(tf => perTF[tf] && perTF[tf][sym] ? perTF[tf][sym].candles : null);
-      if(stores.some(s=>!s || s.length < 200)) return; // not ready
-
-      // compute indicators for each TF via worker
-      const computations = await Promise.all(stores.map(s => computeIndicatorsWorker(s)));
-      // take last candle from highest TF (tf3) as reference
-      const highTFcandles = stores[stores.length-1];
-      const lastCandle = highTFcandles[highTFcandles.length-1];
-
-      // aggregate scores with TF weights (higher TF more weight)
-      const tfWeights = [0.8, 1.0, 1.6]; // adjust as needed (for scalp/daily)
-      const scores = computations.map((ind, idx) => {
-        return scoreFromIndicators(ind.last, (stores[idx][stores[idx].length-1] || lastCandle)) * tfWeights[idx];
-      });
-      const aggScore = scores.reduce((a,b)=>a+b,0);
-      const confidence = aggScore; // rename
-
-      // build signal direction: positive -> long, negative -> short
-      const direction = (confidence >= CONFIG.minConfidence) ? 'LONG' : (confidence <= -CONFIG.minConfidence) ? 'SHORT' : null;
-      if(!direction) return; // not strong enough
-
-      // debounce / cooldown checks
-      const now = Date.now();
-      if(lastSignalAt[sym] && (now - lastSignalAt[sym] < CONFIG.debounceMs)) { log(`${sym} debounced`); return; }
-      if(cooldownUntil[sym] && (now < cooldownUntil[sym])) { log(`${sym} on cooldown`); return; }
-
-      // compute adaptive ATR (use highest TF's atr if available)
-      const atr = computations[computations.length-1].last.atr14 || computations[0].last.atr14 || 0.0001;
-      const atrMult = CONFIG.atrMultiplierBase * (1 + Math.max(0, (computations[computations.length-1].last.adx||0 - CONFIG.adxThreshold)/40)); // more volatile => slightly larger multiplier
-      const sl = (direction==='LONG') ? lastCandle.close - atr * atrMult : lastCandle.close + atr * atrMult;
-      const tp = (direction==='LONG') ? lastCandle.close + atr * atrMult * CONFIG.rrTarget : lastCandle.close - atr * atrMult * CONFIG.rrTarget;
-
-      // position sizing: risk percent
-      const riskPerTrade = CONFIG.accountBalance * (CONFIG.riskPercent/100);
-      const riskPerUnit = Math.abs(lastCandle.close - sl);
-      let qty = riskPerUnit>0 ? riskPerTrade / riskPerUnit : 0;
-      // floor/round qty to 6 decimals
-      qty = Math.floor(qty * 1e6) / 1e6;
-      if(qty <= 0) { log('Qty 0 for', sym); return; }
-
-      // create trade object (do not auto-execute — push into trades list and badge; actual execution integration is your responsibility)
-      const trade = {
-        sym, direction, entry: lastCandle.close, sl, tp, qty, atr, atrMult,
-        confidence, openedAt: now, partials: [], nextTrail: null
-      };
-
-      // store and alert
-      trades[sym] = trades[sym] || [];
-      if(trades[sym].length >= CONFIG.maxOpenPerSymbol){
-        log(`${sym} already has open trade`);
-        return;
-      }
-      trades[sym].push(trade);
-      lastSignalAt[sym] = now;
-      log(`🔔 SIGNAL ${direction} ${sym} @${formatNum(trade.entry)} | TP:${formatNum(trade.tp)} SL:${formatNum(trade.sl)} qty:${trade.qty} conf:${trade.confidence.toFixed(2)}`);
-      notify(`${direction} ${sym}`, `${direction} entry ${sym} @ ${formatNum(trade.entry)} TP ${formatNum(trade.tp)} SL ${formatNum(trade.sl)} (conf ${trade.confidence.toFixed(2)})`);
-
-      // set lightweight cooldown to avoid immediate re-entry after manual TP/SL (not enforced here)
-      cooldownUntil[sym] = now + CONFIG.cooldownMs;
-      return trade;
-    }catch(err){
-      log('Eval err', sym, err.message);
-    }
-  }
-
-  /* ----------------------
-     TP/SL checker (called by live WS per new candle)
-     ---------------------- */
-  function checkTradeOutcomes(sym, newCandle){
-    if(!trades[sym] || trades[sym].length===0) return;
-    trades[sym] = trades[sym].filter(trade => {
-      const hitTP = (trade.direction === 'LONG' && newCandle.high >= trade.tp) || (trade.direction === 'SHORT' && newCandle.low <= trade.tp);
-      const hitSL = (trade.direction === 'LONG' && newCandle.low <= trade.sl) || (trade.direction === 'SHORT' && newCandle.high >= trade.sl);
-      if(hitTP){
-        log(`✅ ${sym} ${trade.direction} TP HIT @ ${formatNum(trade.tp)}`);
-        notify(`${sym} TP`, `${trade.direction} TP hit @ ${formatNum(trade.tp)}`);
-        cooldownUntil[sym] = Date.now() + CONFIG.cooldownMs;
-        return false; // remove trade
-      }
-      if(hitSL){
-        log(`❌ ${sym} ${trade.direction} SL HIT @ ${formatNum(trade.sl)}`);
-        notify(`${sym} SL`, `${trade.direction} SL hit @ ${formatNum(trade.sl)}`);
-        cooldownUntil[sym] = Date.now() + CONFIG.cooldownMs;
-        return false;
-      }
-      // TODO: trailing stop / partial TP handling (extend here)
-      return true; // keep
-    });
-  }
-
-  /* ----------------------
-     Utility: number formatting & notify
-     ---------------------- */
-  function formatNum(n){
-    if(isNaN(n)) return 'n/a';
-    if(Math.abs(n) >= 1000) return Math.round(n);
-    return Number(n).toFixed(6).replace(/\.?0+$/,'');
-  }
-  function notify(title, body){
-    try{
-      if(Notification.permission === 'granted') new Notification(title, {body, icon: undefined});
-      else if(Notification.permission !== 'denied') Notification.requestPermission().then(p=>{ if(p==='granted') new Notification(title,{body}); });
-    }catch(e){}
-  }
-
-  /* ----------------------
-     Hook into existing WS onmessage to evaluate symbol each new 1m candle
-     (Assumes you already have startCombinedWS creating ws variable)
-     ---------------------- */
-  const originalStartCombinedWS = window.startCombinedWS || null;
-  function patchedStartCombinedWS(){
-    if(typeof window.startCombinedWS === 'function' && originalStartCombinedWS === window.startCombinedWS) {
-      // already patched before
-      return window.startCombinedWS();
-    }
-    // override or wrap ws creation and onmessage
-    if(originalStartCombinedWS) originalStartCombinedWS();
-    // If ws exists, wrap its onmessage
-    try{
-      const checkAndWrap = () => {
-        if(!window.ws) { setTimeout(checkAndWrap, 300); return; }
-        const oldOnMessage = window.ws.onmessage;
-        window.ws.onmessage = function(ev){
-          try{
-            const msg = JSON.parse(ev.data);
-            if(msg?.data?.k){
-              const k = msg.data.k;
-              const sym = (msg.data.s || k.s || (msg.stream && msg.stream.split('@')[0])).toUpperCase();
-              // update per1m already happens in original; we only evaluate periodically
-              // call evaluateSymbol for this sym but limit frequency
-              if((k.x || k.x === false) && k.t){ // k.x indicates candle closed on Binance
-                (async ()=>{
-                  try{
-                    // ensure TF stores for current mode are present
-                    await ensureSymbolTFs(sym);
-                    await evaluateSymbol(sym);
-                    // also run TP/SL check using the latest closed candle of highest TF
-                    const tf3 = CONFIG.tfSets[CONFIG.mode][2];
-                    const store = perTF[tf3] && perTF[tf3][sym] && perTF[tf3][sym].candles;
-                    if(store && store.length) checkTradeOutcomes(sym, store[store.length-1]);
-                  }catch(e){ log('eval symbol err', e.message); }
-                })();
-              }
-            }
-          }catch(e){}
-          if(typeof oldOnMessage === 'function') try{ oldOnMessage.call(this, ev); }catch(e){}
-        };
-        log('WS patched for signal evaluation');
-      };
-      checkAndWrap();
-    }catch(e){ log('Failed to patch WS', e.message); }
-  }
-
-  // run patched start
-  setTimeout(()=> {
-    try{ patchedStartCombinedWS(); }catch(e){ /* if fails, continue anyway */ }
-  }, 500);
-
-  /* ----------------------
-     Ensure perTF for a single symbol exists (fetch missing TFs for that symbol)
-     ---------------------- */
-  async function ensureSymbolTFs(sym){
-    const tfs = CONFIG.tfSets[CONFIG.mode];
-    const promises = tfs.map(async tf=>{
-      if(tf === '1m') return;
-      if(!perTF[tf]) perTF[tf] = {};
-      if(!perTF[tf][sym] || perTF[tf][sym].candles.length < 200) {
-        try{
-          const hist = await fetchHistory(sym, tf, CONFIG.historyLimit);
-          perTF[tf][sym] = { candles: hist };
-          log(`Loaded ${sym} ${tf} on-demand (${hist.length})`);
-        }catch(e){ log('ensure symbol tf err', sym, tf, e.message); }
-      }
-    });
-    await Promise.all(promises);
-  }
-
-  /* ----------------------
-     Simple fast backtester (scans historical highest-TF candles and simulates signals)
-     ---------------------- */
-  async function runFastBacktest(){
-    const tfs = CONFIG.tfSets[CONFIG.mode];
-    const tf3 = tfs[2];
-    const symbols = window.SYMBOLS || Object.keys(perTF['1m']||{});
-    log('Backtest start: mode', CONFIG.mode, 'TF3', tf3);
-    const results = [];
-    for(const s of symbols.slice(0,30)){ // limit for speed
-      if(!perTF[tf3] || !perTF[tf3][s]) continue;
-      const hist = perTF[tf3][s].candles;
-      let wins=0, losses=0, tradesCount=0;
-      // iterate windows stepping by 1
-      for(let i=200;i<hist.length;i++){
-        // use recent window to build miniature stores per TF (reuse perTF lower TF if exists - crude approach)
-        try{
-          // provide arrays to worker: we'll build a small combined window for computeIndicatorsWorker
-          const slice3 = hist.slice(Math.max(0,i-500), i+1);
-          const ind = await computeIndicatorsWorker(slice3);
-          // crude signal detection: scoreFromIndicators with same logic but single-TF
-          const score = scoreFromIndicators(ind.last, slice3[slice3.length-1]);
-          if(Math.abs(score) >= CONFIG.minConfidence){
-            // simulate immediate TP/SL based on ATR
-            const atr = ind.last.atr14 || 0.0001;
-            const direction = score>0 ? 'LONG' : 'SHORT';
-            const atrMult = CONFIG.atrMultiplierBase;
-            const entry = slice3[slice3.length-1].close;
-            const sl = direction==='LONG' ? entry - atr*atrMult : entry + atr*atrMult;
-            const tp = direction==='LONG' ? entry + atr*atrMult*CONFIG.rrTarget : entry - atr*atrMult*CONFIG.rrTarget;
-            // next few candles determine hit
-            const nextWindow = hist.slice(i+1, i+11); // look 10 candles ahead
-            let hit='none';
-            for(const c of nextWindow){
-              if(direction==='LONG' && c.high >= tp){ hit='tp'; break; }
-              if(direction==='LONG' && c.low <= sl){ hit='sl'; break; }
-              if(direction==='SHORT' && c.low <= tp){ hit='tp'; break; }
-              if(direction==='SHORT' && c.high >= sl){ hit='sl'; break; }
-            }
-            tradesCount++;
-            if(hit==='tp') wins++; else if(hit==='sl') losses++;
-          }
-        }catch(e){}
-      }
-      results.push({ sym: s, trades: tradesCount, wins, losses, winrate: tradesCount? (wins/tradesCount):0 });
-      log(`Backtest ${s}: t=${tradesCount} w=${wins} l=${losses} wr=${results[results.length-1].winrate.toFixed(2)}`);
-    }
-    log('Backtest complete. Top symbols by winrate:');
-    results.sort((a,b)=> (b.winrate - a.winrate)).slice(0,10).forEach(r=> log(r.sym, 'wr', (r.winrate*100).toFixed(1)+'%', 'trades', r.trades));
-  }
-
-  /* ----------------------
-     Fast scan utility (historical scan across TFs)
-     ---------------------- */
-  async function runFastScanAll(){
-    const symbols = window.SYMBOLS || Object.keys(perTF['1m']||{});
-    for(const s of symbols){
-      try{ await ensureSymbolTFs(s); await evaluateSymbol(s); }catch(e){}
-      await new Promise(r=>setTimeout(r, 100));
-    }
-    log('Fast scan complete');
-  }
-
-  /* ----------------------
-     Utility: format currency or price
-     ---------------------- */
-  function formatPrice(p){
-    if(Math.abs(p) >= 1) return p.toFixed(4);
-    return p.toPrecision(6);
-  }
-
-  /* ----------------------
-     Wire small UI badges for symbol grid if exists (attempt)
-     ---------------------- */
-  function ensureBadgesForSymbols(){
-    const syms = window.SYMBOLS || [];
-    const containerId = 'up_badge_container';
-    let container = document.getElementById(containerId);
-    if(!container){
-      container = document.createElement('div');
-      container.id = containerId;
-      Object.assign(container.style, {position:'fixed', left:'12px', top:'12px', zIndex:99999, maxHeight:'80vh', overflow:'auto', width:'200px', background:'rgba(2,6,23,0.6)', padding:'8px', borderRadius:'8px', color:'#cfe9ff', fontSize:'12px'});
-      document.body.appendChild(container);
-    }
-    for(const s of syms){
-      if(badges[s]) continue;
-      const el = document.createElement('div');
-      el.id = `bd_${s}`; el.textContent = s + ' — idle';
-      Object.assign(el.style, {padding:'6px', margin:'4px 0', background:'#021226', borderRadius:'6px', display:'flex', justifyContent:'space-between', alignItems:'center'});
-      const right = document.createElement('div'); right.style.fontWeight='700';
-      el.appendChild(right);
-      container.appendChild(el);
-      badges[s] = el;
-    }
-  }
-  setTimeout(()=>{ try{ ensureBadgesForSymbols(); }catch(e){} }, 500);
-
-  /* ----------------------
-     Small updater: reflect trades into badges
-     ---------------------- */
-  function refreshBadges(){
-    Object.keys(badges).forEach(s=>{
-      const el = badges[s];
-      const active = trades[s] && trades[s].length ? trades[s][trades[s].length-1] : null;
-      if(active){
-        el.textContent = `${s} — ${active.direction} ${formatNum(active.entry)} conf:${active.confidence.toFixed(2)}`;
-        el.style.background = '#08321a';
-      } else {
-        el.textContent = `${s} — idle`;
-        el.style.background = '#021226';
-      }
-    });
-  }
-  setInterval(refreshBadges, 2000);
-
-  /* ----------------------
-     Small helper to run initial preload
-     ---------------------- */
-  (async function init(){
-    try{
-      await preloadNeededTFs();
-      log('Upgraded system initialized.');
-    }catch(e){ log('Init err', e.message); }
-  })();
-
-  /* ----------------------
-     Expose some utilities to window for manual control
-     ---------------------- */
-  window.UPG = {
-    config: CONFIG,
-    evaluateSymbol,
-    runFastBacktest,
-    runFastScanAll,
-    trades,
-    preloadNeededTFs
-  };
-
-  /* ----------------------
-     Small helpers
-     ---------------------- */
-  function formatNum(n){ return formatPrice(n); }
-})();
-<script>
-
-
+  <label>💰 ATR Multiplier (SL):
+    <input type="number" id="atrMult" step="0.1" value="1.4" style="width:70px">
+  </label>
+  <label>💎 RR (TP ratio):
+    <input type="number" id="rrMult" step="0.1" value="2.8" style="width:70px">
+  </label>
+</div>
 
 <script>
-  (async()=>{
+// ===========================================================
+// UNIVERSAL MULTI-TF CONFIRMATION TRADE SYSTEM
+// ===========================================================
 
-// === CONFIGURATION ===
-const CONFIG = {
-  mode: localStorage.getItem('up_mode') || 'scalp',
-  tfSets: {
-    scalp: ['1m','3m','5m'],
-    daily: ['1h','4h','1d']
-  },
-  rrTarget: 2.8,
-  atrMultiplierBase: 1.4,
-  minConfidence: 2.8,
-  riskPerTrade: 0.5,
-  minAdx: 22,
+// === GLOBAL OPTIONS ===
+const tradeOptions = {
+  mode: 'scalp',   // scalp or daily
+  pos: 'both',     // long / short / both
+  atrMult: 1.4,
+  rrMult: 2.8
 };
 
-// === UI PANEL ===
-function addPersistentPanel(){
-  if(document.getElementById('persistentModeBar')) return;
-  const bar=document.createElement('div');
-  bar.id='persistentModeBar';
-  Object.assign(bar.style,{
-    position:'fixed',bottom:'20px',right:'20px',
-    background:'rgba(25,25,25,0.9)',color:'#fff',
-    padding:'10px 16px',borderRadius:'12px',
-    fontFamily:'monospace',zIndex:999999,
-    boxShadow:'0 0 12px rgba(0,0,0,0.4)',
-    display:'flex',alignItems:'center',gap:'8px'
-  });
-  const label=document.createElement('span');
-  label.textContent='Mode:';
-  const btn=document.createElement('button');
-  btn.textContent=CONFIG.mode.toUpperCase();
-  Object.assign(btn.style,{
-    background:'#00bcd4',border:'none',color:'#000',
-    fontWeight:'bold',padding:'6px 12px',borderRadius:'8px',
-    cursor:'pointer'
-  });
-  btn.onclick=()=>{
-    CONFIG.mode=(CONFIG.mode==='scalp')?'daily':'scalp';
-    localStorage.setItem('up_mode',CONFIG.mode);
-    btn.textContent=CONFIG.mode.toUpperCase();
-    alert(`Switched to ${CONFIG.mode.toUpperCase()} mode\n(${CONFIG.tfSets[CONFIG.mode].join('/')})`);
-  };
-  bar.append(label,btn);
-  document.body.appendChild(bar);
+// === LISTENERS ===
+document.getElementById('modeSelect').onchange = e=>{
+  tradeOptions.mode = e.target.value;
+  pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
+  if(tradeOptions.mode==='daily') preloadHigherTF();
+  else preloadMultiTF();
+};
+document.getElementById('posSelect').onchange = e=>{
+  tradeOptions.pos = e.target.value;
+  pushLog(`⚙️ Position filter: ${tradeOptions.pos}`);
+};
+document.getElementById('atrMult').onchange = e=>{
+  tradeOptions.atrMult = parseFloat(e.target.value);
+};
+document.getElementById('rrMult').onchange = e=>{
+  tradeOptions.rrMult = parseFloat(e.target.value);
+};
+
+// === DATA STORES ===
+const per1m = per;  // reuse existing 1m data
+const per3m = {}, per5m = {};
+const per1h = {}, per4h = {}, per1d = {};
+const trades = {}; // active trades
+
+// === FETCHING HISTORICAL DATA ===
+async function fetchHistory(sym, interval, limit, target){
+  const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`;
+  try{
+    const res = await fetch(url);
+    const raw = await res.json();
+    target[sym] = { candles: raw.map(k=>({
+      time:k[0], open:+k[1], high:+k[2], low:+k[3],
+      close:+k[4], volume:+k[5]
+    })) };
+  }catch(e){ console.warn(`⚠️ Error fetching ${interval} data for ${sym}`, e); }
 }
-window.addEventListener('load',()=>setTimeout(addPersistentPanel,1500));
 
-// === DUMMY PLACEHOLDER: YOUR ORIGINAL SYSTEM BELOW ===
-// Insert your full indicator computation & evaluation code here.
-// Everything else (multi-TF scoring, alerts, etc.) remains the same.
+async function preloadMultiTF(){
+  for(const s of SYMBOLS){
+    await Promise.all([
+      fetchHistory(s, '3m', 1000, per3m),
+      fetchHistory(s, '5m', 1000, per5m)
+    ]);
+    await sleep(100);
+  }
+  pushLog("✅ Loaded 3m + 5m datasets for all symbols");
+}
 
-})();
-<script>
+async function preloadHigherTF(){
+  for(const s of SYMBOLS){
+    await Promise.all([
+      fetchHistory(s, '1h', 1000, per1h),
+      fetchHistory(s, '4h', 1000, per4h),
+      fetchHistory(s, '1d', 1000, per1d)
+    ]);
+    await sleep(100);
+  }
+  pushLog("✅ Loaded 1h + 4h + 1d datasets for all symbols");
+}
+
+// === EVALUATE TRADE SIGNALS (UNIFIED) ===
+function evaluateTradeSignals(sym){
+  const { mode, pos, atrMult, rrMult } = tradeOptions;
+
+  // pick timeframe sets
+  let tf1, tf2, tf3;
+  if(mode==='daily'){ tf1=per1h; tf2=per4h; tf3=per1d; }
+  else { tf1=per1m; tf2=per3m; tf3=per5m; }
+
+  const st1=tf1[sym], st2=tf2[sym], st3=tf3[sym];
+  if(!st1||!st2||!st3) return;
+  if(st1.candles.length<200 || st2.candles.length<200 || st3.candles.length<200) return;
+  if(!trades[sym]) trades[sym]=[];
+
+  const arr1=st1.candles, arr2=st2.candles, arr3=st3.candles;
+  const last3=arr3[arr3.length-1];
+
+  // === Indicator computations ===
+  const ema14_1=EMA(14,arr1), sma14_1=SMA(14,arr1);
+  const ema14_2=EMA(14,arr2), sma14_2=SMA(14,arr2);
+  const ema14_3=EMA(14,arr3), sma14_3=SMA(14,arr3);
+
+  const [macd1,sig1,hist1]=MACD(arr1);
+  const [macd2,sig2,hist2]=MACD(arr2);
+  const [macd3,sig3,hist3]=MACD(arr3);
+
+  const adx3=ADX(14,arr3), rsi3=RSI(14,arr3), atr3=ATR(14,arr3);
+  const [bbMid3]=Bollinger(20,arr3);
+  const [dcH3,dcL3]=Donchian(20,arr3);
+  const vwap3=VWAP(arr3);
+  const psar3=ParabolicSAR(arr3);
+  const [stK3,stD3]=Stochastic(14,arr3,sym);
+  const [pivot3]=Pivots(last3);
+
+  // === Trend agreement ===
+  const up = ema14_1>sma14_1 && ema14_2>sma14_2 && ema14_3>sma14_3 &&
+             macd1>sig1 && macd2>sig2 && macd3>sig3 && adx3>22 && rsi3>55;
+  const dn = ema14_1<sma14_1 && ema14_2<sma14_2 && ema14_3<sma14_3 &&
+             macd1<sig1 && macd2<sig2 && macd3<sig3 && adx3>22 && rsi3<45;
+
+  // === Strict conditions for scalping mode ===
+  let longCond=false, shortCond=false;
+  if(mode==='scalp'){
+    longCond = up &&
+      rsi3>=58 && rsi3<=75 &&
+      last3.close>bbMid3 && last3.close>psar3 &&
+      stK3>stD3 && stK3<80 &&
+      last3.close>vwap3 && last3.close>pivot3 &&
+      last3.close>dcH3*0.995;
+    shortCond = dn &&
+      rsi3<=42 && rsi3>=25 &&
+      last3.close<bbMid3 && last3.close<psar3 &&
+      stK3<stD3 && stK3>20 &&
+      last3.close<vwap3 && last3.close<pivot3 &&
+      last3.close<dcL3*1.005;
+  } else {
+    longCond = up;
+    shortCond = dn;
+  }
+
+  let tp=null, sl=null;
+  if(longCond && (pos==='both'||pos==='long')){
+    sl=last3.close - atr3*atrMult;
+    tp=last3.close + atr3*atrMult*rrMult;
+  }
+  if(shortCond && (pos==='both'||pos==='short')){
+    sl=last3.close + atr3*atrMult;
+    tp=last3.close - atr3*atrMult*rrMult;
+  }
+
+  const badge=document.getElementById(`bd_${sym}`);
+  if((longCond||shortCond)&&(!trades[sym].length||trades[sym][trades[sym].length-1].openCandle!==last3.time)){
+    const type=longCond?'LONG':'SHORT';
+    trades[sym].push({type,entry:last3.close,sl,tp,openCandle:last3.time});
+    if(trades[sym].length>10) trades[sym].shift();
+    badge.textContent=type;
+    badge.className='badg '+(type==='LONG'?'buy':'warn');
+    const msg=`${sym} ${type} ENTRY @ ${fmt(last3.close)} | TP ${fmt(tp)} | SL ${fmt(sl)} (${mode.toUpperCase()} mode)`;
+    pushLog(`🔔 ${msg}`);
+    notify(`${type} Alert — ${sym}`, msg);
+  }
+
+  // === TP/SL check ===
+  trades[sym] = trades[sym].filter(t=>{
+    const hitTP=(t.type==='LONG'&&last3.high>=t.tp)||(t.type==='SHORT'&&last3.low<=t.tp);
+    const hitSL=(t.type==='LONG'&&last3.low<=t.sl)||(t.type==='SHORT'&&last3.high>=t.sl);
+    if(hitTP){pushLog(`✅ ${sym} ${t.type} TP HIT @ ${fmt(t.tp)}`); badge.textContent='TP HIT'; badge.className='badg green';}
+    if(hitSL){pushLog(`❌ ${sym} ${t.type} SL HIT @ ${fmt(t.sl)}`); badge.textContent='SL HIT'; badge.className='badg red';}
+    return !(hitTP||hitSL);
+  });
+}
+
+// === LIVE STREAMING ===
+function startCombinedWS(){
+  if(ws) try{ ws.close(); }catch{}
+  const streams = SYMBOLS.map(s => `${s.toLowerCase()}@kline_1m`).join('/');
+  const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
+  ws = new WebSocket(url);
+
+  ws.onopen = ()=>{ liveEl.textContent='Live: connected'; pushLog('✅ WebSocket connected.'); };
+  ws.onerror = ()=>{ liveEl.textContent='Live: error'; pushLog('❌ WS error'); };
+  ws.onclose = ()=>{ liveEl.textContent='Live: closed'; pushLog('⚠️ WS closed. Reconnecting…'); setTimeout(startCombinedWS,2000); };
+
+  ws.onmessage = (ev)=>{
+    if(livePaused) return;
+    const msg=JSON.parse(ev.data);
+    if(!msg?.data?.k) return;
+    const k=msg.data.k;
+    const sym=(msg.data.s||k.s||msg.stream.split('@')[0]).toUpperCase();
+    const st=per1m[sym]; if(!st) return;
+
+    const candle={ time:k.t, open:+k.o, high:+k.h, low:+k.l, close:+k.c, volume:+k.v };
+    const arr=st.candles;
+    const last=arr[arr.length-1];
+    const same=last && last.time===candle.time;
+    if(same) arr[arr.length-1]=candle; else arr.push(candle);
+    st.candles=clampStore(arr);
+
+    if(sym===active){
+      const ts=new Date(candle.time).toLocaleTimeString();
+      const delta=(last?candle.close-last.close:0);
+      pushLog(`${same?'⚡':'🟢'} ${sym} [${ts}] C:${fmt(candle.close)} (Δ ${fmt(delta)})`);
+      drawChart(); updateIndicators(sym);
+    }
+    drawSpark(sym);
+    evaluateTradeSignals(sym);
+  };
+}
+</script>
+
+
+
+
+
+
 
 
 
