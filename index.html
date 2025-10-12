@@ -1245,7 +1245,62 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+<script>
+  (async()=>{
 
+// === CONFIGURATION ===
+const CONFIG = {
+  mode: localStorage.getItem('up_mode') || 'scalp',
+  tfSets: {
+    scalp: ['1m','3m','5m'],
+    daily: ['1h','4h','1d']
+  },
+  rrTarget: 2.8,
+  atrMultiplierBase: 1.4,
+  minConfidence: 2.8,
+  riskPerTrade: 0.5,
+  minAdx: 22,
+};
+
+// === UI PANEL ===
+function addPersistentPanel(){
+  if(document.getElementById('persistentModeBar')) return;
+  const bar=document.createElement('div');
+  bar.id='persistentModeBar';
+  Object.assign(bar.style,{
+    position:'fixed',bottom:'20px',right:'20px',
+    background:'rgba(25,25,25,0.9)',color:'#fff',
+    padding:'10px 16px',borderRadius:'12px',
+    fontFamily:'monospace',zIndex:999999,
+    boxShadow:'0 0 12px rgba(0,0,0,0.4)',
+    display:'flex',alignItems:'center',gap:'8px'
+  });
+  const label=document.createElement('span');
+  label.textContent='Mode:';
+  const btn=document.createElement('button');
+  btn.textContent=CONFIG.mode.toUpperCase();
+  Object.assign(btn.style,{
+    background:'#00bcd4',border:'none',color:'#000',
+    fontWeight:'bold',padding:'6px 12px',borderRadius:'8px',
+    cursor:'pointer'
+  });
+  btn.onclick=()=>{
+    CONFIG.mode=(CONFIG.mode==='scalp')?'daily':'scalp';
+    localStorage.setItem('up_mode',CONFIG.mode);
+    btn.textContent=CONFIG.mode.toUpperCase();
+    alert(`Switched to ${CONFIG.mode.toUpperCase()} mode\n(${CONFIG.tfSets[CONFIG.mode].join('/')})`);
+  };
+  bar.append(label,btn);
+  document.body.appendChild(bar);
+}
+window.addEventListener('load',()=>setTimeout(addPersistentPanel,1500));
+
+// === DUMMY PLACEHOLDER: YOUR ORIGINAL SYSTEM BELOW ===
+// Insert your full indicator computation & evaluation code here.
+// Everything else (multi-TF scoring, alerts, etc.) remains the same.
+
+})();
+<script>
 
 
 
