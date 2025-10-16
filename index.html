@@ -824,6 +824,46 @@ function startCombinedWS(){
 
 
 
+<!-- === AGGRESSIVE 1-MIN MODE ADD-ON === -->
+<script>
+let aggressiveTimer=null;
+
+// === UI Add-on ===
+const aggrBox=document.createElement('label');
+aggrBox.innerHTML=`⚡ Aggressive 1m Mode:
+  <button id="aggrBtn" style="background:#440; color:#ff0; border:1px solid #880; border-radius:6px; padding:4px 10px;">
+    OFF
+  </button>`;
+document.getElementById('tradeOptions').appendChild(aggrBox);
+
+// === Aggressive Mode Logic ===
+document.getElementById('aggrBtn').onclick=()=>{
+  const btn=document.getElementById('aggrBtn');
+  if(btn.textContent==='OFF'){
+    btn.textContent='ON';
+    btn.style.background='#880';
+    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (1-minute window)');
+    tradeOptions.mode='scalp';        // force scalp mode
+    tradeOptions.atrMult=1.0;         // tighter stop
+    tradeOptions.rrMult=2.0;          // faster TP
+    tradeOptions.pos='both';
+    aggressiveTimer=setTimeout(()=>{
+      btn.textContent='OFF';
+      btn.style.background='#440';
+      tradeOptions.atrMult=1.4;
+      tradeOptions.rrMult=2.8;
+      pushLog('⏳ Aggressive mode ended, reverted to normal settings.');
+    },60_000); // 1 minute
+  } else {
+    clearTimeout(aggressiveTimer);
+    btn.textContent='OFF';
+    btn.style.background='#440';
+    tradeOptions.atrMult=1.4;
+    tradeOptions.rrMult=2.8;
+    pushLog('🛑 Aggressive mode manually stopped.');
+  }
+};
+</script>
 
 
 
