@@ -824,47 +824,55 @@ function startCombinedWS(){
 
 
 
-<!-- === AGGRESSIVE 1-MIN MODE ADD-ON === -->
+
+
 <script>
-let aggressiveTimer=null;
+// === AGGRESSIVE 1-MIN MODE ADD-ON ===
 
-// === UI Add-on ===
-const aggrBox=document.createElement('label');
-aggrBox.innerHTML=`⚡ Aggressive 1m Mode:
-  <button id="aggrBtn" style="background:#440; color:#ff0; border:1px solid #880; border-radius:6px; padding:4px 10px;">
-    OFF
-  </button>`;
-document.getElementById('tradeOptions').appendChild(aggrBox);
+// --- Add "Aggressive 1-Minute" to Trade Mode dropdown
+const modeSelect = document.getElementById('modeSelect');
+const aggrOpt = document.createElement('option');
+aggrOpt.value = 'aggressive';
+aggrOpt.textContent = 'Aggressive 1-Minute (⚡)';
+modeSelect.appendChild(aggrOpt);
 
-// === Aggressive Mode Logic ===
-document.getElementById('aggrBtn').onclick=()=>{
-  const btn=document.getElementById('aggrBtn');
-  if(btn.textContent==='OFF'){
-    btn.textContent='ON';
-    btn.style.background='#880';
-    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (1-minute window)');
-    tradeOptions.mode='scalp';        // force scalp mode
-    tradeOptions.atrMult=1.0;         // tighter stop
-    tradeOptions.rrMult=2.0;          // faster TP
-    tradeOptions.pos='both';
-    aggressiveTimer=setTimeout(()=>{
-      btn.textContent='OFF';
-      btn.style.background='#440';
-      tradeOptions.atrMult=1.4;
-      tradeOptions.rrMult=2.8;
-      pushLog('⏳ Aggressive mode ended, reverted to normal settings.');
-    },60_000); // 1 minute
-  } else {
+// --- Timer reference
+let aggressiveTimer = null;
+
+// --- Updated listener for modeSelect
+modeSelect.addEventListener('change', e => {
+  tradeOptions.mode = e.target.value;
+  pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
+
+  // normal modes
+  if (tradeOptions.mode === 'daily') preloadHigherTF();
+  else if (tradeOptions.mode === 'scalp') preloadMultiTF();
+
+  // aggressive mode
+  if (tradeOptions.mode === 'aggressive') {
+    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
+    tradeOptions.mode = 'scalp';   // still use scalp timeframes
+    tradeOptions.atrMult = 1.0;    // tighter SL
+    tradeOptions.rrMult = 2.0;     // faster TP
+    tradeOptions.pos = 'both';     // allow both long & short
+
+    // optional preload to refresh 1m data
+    preloadMultiTF();
+
+    // auto revert after 1 minute
     clearTimeout(aggressiveTimer);
-    btn.textContent='OFF';
-    btn.style.background='#440';
-    tradeOptions.atrMult=1.4;
-    tradeOptions.rrMult=2.8;
-    pushLog('🛑 Aggressive mode manually stopped.');
+    aggressiveTimer = setTimeout(() => {
+      if (document.getElementById('modeSelect').value === 'aggressive') {
+        document.getElementById('modeSelect').value = 'scalp';
+        tradeOptions.mode = 'scalp';
+        tradeOptions.atrMult = 1.4;
+        tradeOptions.rrMult = 2.8;
+        pushLog('⏳ Aggressive mode ended — reverted to normal scalping.');
+      }
+    }, 60_000);
   }
-};
+});
 </script>
-
 
 
 
