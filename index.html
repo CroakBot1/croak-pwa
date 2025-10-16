@@ -828,7 +828,10 @@ function startCombinedWS(){
 
 
 
-<!-- === AGGRESSIVE 1-MIN MODE ADD-ON (INTEGRATED + POPUP ALERT) === -->
+
+
+
+<!-- === AGGRESSIVE 1-MIN MODE + TRADE POPUPS (ADD-ON) === -->
 <style>
 #toastBox {
   position: fixed; bottom: 30px; right: 30px;
@@ -843,7 +846,7 @@ function startCombinedWS(){
 <div id="toastBox"></div>
 
 <script>
-// === Toast Helper (non-blocking pop-up)
+// === Toast Helper ===
 function showToast(msg) {
   const t = document.getElementById('toastBox');
   t.textContent = msg;
@@ -861,26 +864,26 @@ modeSelect.appendChild(aggrOpt);
 
 let aggressiveTimer = null;
 
-// === Updated modeSelect listener (extends original behavior)
+// === Aggressive Mode Behavior ===
 modeSelect.addEventListener('change', e => {
   tradeOptions.mode = e.target.value;
   pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
 
-  // handle modes
   if (tradeOptions.mode === 'daily') preloadHigherTF();
   else if (tradeOptions.mode === 'scalp') preloadMultiTF();
 
-  // === Aggressive Mode Logic ===
+  // --- Aggressive Mode Settings
   if (tradeOptions.mode === 'aggressive') {
     pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
     showToast('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
-    
-    tradeOptions.mode = 'scalp';  // still use scalping timeframe
-    tradeOptions.atrMult = 1.0;   // tighter SL
-    tradeOptions.rrMult = 2.0;    // faster TP
-    tradeOptions.pos = 'both';    // both directions
 
-    preloadMultiTF(); // refresh short TF data
+    tradeOptions.mode = 'scalp';
+    tradeOptions.atrMult = 1.0;  // tighter stop-loss
+    tradeOptions.rrMult = 2.0;   // faster take-profit
+    tradeOptions.pos = 'both';
+    preloadMultiTF();
+
+    showToast(`📊 TP/SL: RR ${tradeOptions.rrMult}x | ATR ${tradeOptions.atrMult}x`);
 
     clearTimeout(aggressiveTimer);
     aggressiveTimer = setTimeout(() => {
@@ -895,9 +898,19 @@ modeSelect.addEventListener('change', e => {
     }, 60_000);
   }
 });
+
+// === Hook Into Trade Signal Logs ===
+// Intercept pushLog() to detect trade events
+const oldPushLog = window.pushLog;
+window.pushLog = function(msg) {
+  oldPushLog(msg);
+
+  // detect LONG/SHORT entries
+  if (msg.includes('ENTRY @')) showToast(`🔔 ${msg}`);
+  if (msg.includes('TP HIT')) showToast(`✅ ${msg}`);
+  if (msg.includes('SL HIT')) showToast(`❌ ${msg}`);
+};
 </script>
-
-
 
 
 
