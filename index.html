@@ -826,40 +826,62 @@ function startCombinedWS(){
 
 
 
-<script>
-// === AGGRESSIVE 1-MIN MODE ADD-ON ===
 
-// --- Add "Aggressive 1-Minute" to Trade Mode dropdown
+
+<!-- === AGGRESSIVE 1-MIN MODE ADD-ON (INTEGRATED + POPUP ALERT) === -->
+<style>
+#toastBox {
+  position: fixed; bottom: 30px; right: 30px;
+  background: #222; color: #fff;
+  padding: 10px 18px; border-radius: 10px;
+  box-shadow: 0 0 10px #0008;
+  font-family: monospace; font-size: 14px;
+  opacity: 0; transition: opacity 0.5s;
+  z-index: 9999;
+}
+</style>
+<div id="toastBox"></div>
+
+<script>
+// === Toast Helper (non-blocking pop-up)
+function showToast(msg) {
+  const t = document.getElementById('toastBox');
+  t.textContent = msg;
+  t.style.opacity = 1;
+  clearTimeout(t.timer);
+  t.timer = setTimeout(() => (t.style.opacity = 0), 4000);
+}
+
+// === Add Aggressive Mode Option ===
 const modeSelect = document.getElementById('modeSelect');
 const aggrOpt = document.createElement('option');
 aggrOpt.value = 'aggressive';
 aggrOpt.textContent = 'Aggressive 1-Minute (⚡)';
 modeSelect.appendChild(aggrOpt);
 
-// --- Timer reference
 let aggressiveTimer = null;
 
-// --- Updated listener for modeSelect
+// === Updated modeSelect listener (extends original behavior)
 modeSelect.addEventListener('change', e => {
   tradeOptions.mode = e.target.value;
   pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
 
-  // normal modes
+  // handle modes
   if (tradeOptions.mode === 'daily') preloadHigherTF();
   else if (tradeOptions.mode === 'scalp') preloadMultiTF();
 
-  // aggressive mode
+  // === Aggressive Mode Logic ===
   if (tradeOptions.mode === 'aggressive') {
     pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
-    tradeOptions.mode = 'scalp';   // still use scalp timeframes
-    tradeOptions.atrMult = 1.0;    // tighter SL
-    tradeOptions.rrMult = 2.0;     // faster TP
-    tradeOptions.pos = 'both';     // allow both long & short
+    showToast('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
+    
+    tradeOptions.mode = 'scalp';  // still use scalping timeframe
+    tradeOptions.atrMult = 1.0;   // tighter SL
+    tradeOptions.rrMult = 2.0;    // faster TP
+    tradeOptions.pos = 'both';    // both directions
 
-    // optional preload to refresh 1m data
-    preloadMultiTF();
+    preloadMultiTF(); // refresh short TF data
 
-    // auto revert after 1 minute
     clearTimeout(aggressiveTimer);
     aggressiveTimer = setTimeout(() => {
       if (document.getElementById('modeSelect').value === 'aggressive') {
@@ -868,12 +890,12 @@ modeSelect.addEventListener('change', e => {
         tradeOptions.atrMult = 1.4;
         tradeOptions.rrMult = 2.8;
         pushLog('⏳ Aggressive mode ended — reverted to normal scalping.');
+        showToast('⏳ Aggressive mode ended — back to normal scalping.');
       }
     }, 60_000);
   }
 });
 </script>
-
 
 
 
