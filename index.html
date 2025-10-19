@@ -928,6 +928,108 @@ window.pushLog = function(msg) {
 
 
 
+<script>
+// ===========================================================
+// ADD-ON: SUPER AGGRESSIVE 30-SECOND MODE
+// ===========================================================
+
+// --- global store for 30s candles ---
+const per30s = {};
+
+// --- Fetch 30s klines ---
+async function fetch30sHistory(sym, limit=1000){
+  const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=30s&limit=${limit}`;
+  try{
+    const res = await fetch(url);
+    const raw = await res.json();
+    per30s[sym] = {
+      candles: raw.map(k => ({
+        time: k[0],
+        open: +k[1],
+        high: +k[2],
+        low: +k[3],
+        close: +k[4],
+        volume: +k[5]
+      }))
+    };
+  } catch(e){
+    console.warn(`⚠️ Error fetching 30s data for ${sym}`, e);
+  }
+}
+
+// --- preload 30s dataset for all symbols ---
+async function preload30sAggressive(){
+  for(const s of SYMBOLS){
+    await fetch30sHistory(s);
+    await sleep(100);
+  }
+  pushLog("🔥 Loaded SUPER AGGRESSIVE 30s datasets for all symbols");
+}
+
+// --- Add new trade mode option ---
+const modeSel = document.getElementById('modeSelect');
+const opt30s = document.createElement('option');
+opt30s.value = 'aggressive';
+opt30s.textContent = '⚡ Super Aggressive (30s)';
+modeSel.appendChild(opt30s);
+
+// --- modify onchange handler to include 30s mode ---
+modeSel.onchange = e=>{
+  tradeOptions.mode = e.target.value;
+  pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
+  if(tradeOptions.mode==='daily') preloadHigherTF();
+  else if(tradeOptions.mode==='aggressive') preload30sAggressive();
+  else preloadMultiTF();
+};
+
+// --- evaluate 30s signals ---
+function evaluateAggressiveTrade(sym){
+  const st30 = per30s[sym];
+  if(!st30 || st30.candles.length < 100) return;
+
+  const arr = st30.candles;
+  const last = arr[arr.length-1];
+  const ema9 = EMA(9, arr);
+  const rsi = RSI(7, arr);
+  const atr = ATR(7, arr);
+  const macd = MACD(arr)[0];
+  const adx = ADX(7, arr);
+
+  const longCond = ema9 > arr[arr.length-2].close && rsi > 60 && adx > 18 && macd > 0;
+  const shortCond = ema9 < arr[arr.length-2].close && rsi < 40 && adx > 18 && macd < 0;
+
+  const atrMult = tradeOptions.atrMult * 0.8; // tighter SL for speed
+  const rrMult = tradeOptions.rrMult * 0.7;  // smaller RR target
+
+  if(longCond || shortCond){
+    const type = longCond ? 'LONG' : 'SHORT';
+    const sl = last.close + (shortCond ? atr*atrMult : -atr*atrMult);
+    const tp = last.close + (longCond ? atr*atrMult*rrMult : -atr*atrMult*rrMult);
+
+    const badge = document.getElementById(`bd_${sym}`);
+    badge.textContent = type;
+    badge.className = 'badg ' + (type==='LONG' ? 'buy' : 'warn');
+    pushLog(`⚡ ${sym} ${type} @ ${fmt(last.close)} | TP ${fmt(tp)} | SL ${fmt(sl)} (30s Aggro)`);
+    notify(`${sym} 30s ${type}`, `Entry ${fmt(last.close)} | TP ${fmt(tp)} | SL ${fmt(sl)}`);
+  }
+}
+
+// --- inject evaluation into websocket stream ---
+function evaluateTradeSignals(sym){
+  if(tradeOptions.mode==='aggressive') return evaluateAggressiveTrade(sym);
+  // original function continues below...
+}
+</script>
+
+
+
+
+
+
+
+
+
+
 
 
 
