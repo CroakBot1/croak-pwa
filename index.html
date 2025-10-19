@@ -927,120 +927,78 @@ window.pushLog = function(msg) {
 
 
 
+
+<!-- === ADD-ON: Super Aggressive 1-Second Mode (PERMANENT) === -->
+<style>
+#toastBox {
+  position: fixed; bottom: 30px; right: 30px;
+  background: #111; color: #fff;
+  padding: 10px 18px; border-radius: 10px;
+  box-shadow: 0 0 12px #ff000080;
+  font-family: monospace; font-size: 14px;
+  opacity: 0; transition: opacity 0.5s;
+  z-index: 9999;
+  border: 1px solid #f00;
+}
+</style>
+<div id="toastBox"></div>
+
 <script>
-// ===========================================================
-// FIXED: KEEP SUPER AGGRESSIVE 30-SECOND MODE RUNNING
-// ===========================================================
-
-// --- global store for 30s candles ---
-const per30s = {};
-
-// --- fetch 30s candles (simulate if Binance doesn't support 30s) ---
-async function fetch30sHistory(sym, limit=1000){
-  try {
-    const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=1m&limit=${limit}`;
-    const res = await fetch(url);
-    const raw = await res.json();
-    // simulate 30s candles from 1m
-    const arr=[];
-    for(const k of raw){
-      const mid=(+k[1]+ +k[4])/2;
-      arr.push({time:+k[0],open:+k[1],high:Math.max(+k[1],mid),low:Math.min(+k[1],mid),close:mid,volume:+k[5]/2});
-      arr.push({time:+k[0]+30000,open:mid,high:Math.max(mid,+k[4]),low:Math.min(mid,+k[4]),close:+k[4],volume:+k[5]/2});
-    }
-    per30s[sym]={candles:arr.slice(-1000)};
-  }catch(e){
-    console.warn(`⚠️ 30s history error for ${sym}`,e);
-  }
+// === Toast Helper ===
+function showToast(msg) {
+  const t = document.getElementById('toastBox');
+  t.textContent = msg;
+  t.style.opacity = 1;
+  clearTimeout(t.timer);
+  t.timer = setTimeout(() => (t.style.opacity = 0), 4000);
 }
 
-// --- preload datasets ---
-async function preload30sAggressive(){
-  for(const s of SYMBOLS){
-    await fetch30sHistory(s);
-    await sleep(100);
-  }
-  pushLog("🔥 Loaded & running 30s simulated data for all symbols");
-  startAggressiveLive();  // <-- keep it alive
-}
+// === Add "Super Aggressive 1-Second" Option ===
+const modeSelect = document.getElementById('modeSelect');
+const superOpt = document.createElement('option');
+superOpt.value = 'superAggressive';
+superOpt.textContent = 'Super Aggressive 1-Second (⚡⚡)';
+modeSelect.appendChild(superOpt);
 
-// --- attach new mode to dropdown ---
-const modeSel=document.getElementById('modeSelect');
-const opt30s=document.createElement('option');
-opt30s.value='aggressive';
-opt30s.textContent='⚡ Super Aggressive (30s)';
-modeSel.appendChild(opt30s);
-
-modeSel.onchange=e=>{
-  tradeOptions.mode=e.target.value;
+// === Super Aggressive Mode Behavior (PERMANENT) ===
+modeSelect.addEventListener('change', e => {
+  tradeOptions.mode = e.target.value;
   pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
-  if(tradeOptions.mode==='daily') preloadHigherTF();
-  else if(tradeOptions.mode==='aggressive') preload30sAggressive();
-  else preloadMultiTF();
+
+  if (tradeOptions.mode === 'daily') preloadHigherTF();
+  else if (tradeOptions.mode === 'scalp') preloadMultiTF();
+
+  if (tradeOptions.mode === 'superAggressive') {
+    pushLog('⚡⚡ Super Aggressive 1-Second Mode ACTIVATED (manual off)');
+    showToast('⚡⚡ Super Aggressive 1-Second Mode ON — manual turn-off only');
+
+    // --- Super tight, ultra-fast settings
+    tradeOptions.atrMult = 0.5;   // super tight SL
+    tradeOptions.rrMult  = 1.5;   // quick TP
+    tradeOptions.pos     = 'both';
+    preloadMultiTF();
+
+    showToast(`📊 TP/SL: RR ${tradeOptions.rrMult}x | ATR ${tradeOptions.atrMult}x`);
+  }
+
+  if (tradeOptions.mode !== 'superAggressive') {
+    // revert settings when switching manually
+    tradeOptions.atrMult = 1.4;
+    tradeOptions.rrMult = 2.8;
+    pushLog('↩️ Super Aggressive mode OFF — back to normal.');
+    showToast('↩️ Super Aggressive mode OFF — normal scalping resumed.');
+  }
+});
+
+// === Hook Toasts into Trade Logs ===
+const oldPushLog = window.pushLog;
+window.pushLog = function(msg) {
+  oldPushLog(msg);
+  if (msg.includes('ENTRY @')) showToast(`🔔 ${msg}`);
+  if (msg.includes('TP HIT'))  showToast(`✅ ${msg}`);
+  if (msg.includes('SL HIT'))  showToast(`❌ ${msg}`);
 };
-
-// --- live 30s refresher ---
-function startAggressiveLive(){
-  // refresh every 30 seconds forever
-  setInterval(()=>{
-    if(tradeOptions.mode!=='aggressive') return;
-    for(const s of SYMBOLS){
-      const st=per1m[s]; if(!st) continue;
-      // rebuild simulated 30s candles
-      const last1m=st.candles.slice(-1)[0];
-      const mid=(last1m.open+last1m.close)/2;
-      const new30a={time:last1m.time,open:last1m.open,high:Math.max(last1m.open,mid),low:Math.min(last1m.open,mid),close:mid,volume:last1m.volume/2};
-      const new30b={time:last1m.time+30000,open:mid,high:Math.max(mid,last1m.close),low:Math.min(mid,last1m.close),close:last1m.close,volume:last1m.volume/2};
-      if(!per30s[s]) per30s[s]={candles:[]};
-      const arr=per30s[s].candles;
-      arr.push(new30a,new30b);
-      per30s[s].candles=arr.slice(-1000);
-      evaluateAggressiveTrade(s);
-    }
-  },30000);
-  pushLog("🚀 Aggressive 30s loop started (auto-refresh on)");
-}
-
-// --- evaluate 30s logic ---
-function evaluateAggressiveTrade(sym){
-  const st30=per30s[sym];
-  if(!st30||st30.candles.length<20) return;
-  const arr=st30.candles;
-  const last=arr[arr.length-1];
-  const ema9=EMA(9,arr);
-  const rsi=RSI(7,arr);
-  const atr=ATR(7,arr);
-  const macd=MACD(arr)[0];
-  const adx=ADX(7,arr);
-
-  const longCond=ema9>arr[arr.length-2].close && rsi>60 && adx>18 && macd>0;
-  const shortCond=ema9<arr[arr.length-2].close && rsi<40 && adx>18 && macd<0;
-
-  const atrMult=tradeOptions.atrMult*0.8;
-  const rrMult=tradeOptions.rrMult*0.7;
-
-  if(longCond||shortCond){
-    const type=longCond?'LONG':'SHORT';
-    const sl=last.close+(shortCond?atr*atrMult:-atr*atrMult);
-    const tp=last.close+(longCond?atr*atrMult*rrMult:-atr*atrMult*rrMult);
-    const badge=document.getElementById(`bd_${sym}`);
-    badge.textContent=type;
-    badge.className='badg '+(type==='LONG'?'buy':'warn');
-    pushLog(`⚡ ${sym} ${type} @ ${fmt(last.close)} | TP ${fmt(tp)} | SL ${fmt(sl)} (30s mode)`);
-    notify(`${sym} 30s ${type}`,`Entry ${fmt(last.close)} | TP ${fmt(tp)} | SL ${fmt(sl)}`);
-  }
-}
-
-// --- integrate with main evaluator ---
-function evaluateTradeSignals(sym){
-  if(tradeOptions.mode==='aggressive'){
-    evaluateAggressiveTrade(sym);
-    return; // still continuous via the loop
-  }
-  // ...original logic here...
-}
 </script>
-
 
 
 
