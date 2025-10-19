@@ -838,7 +838,7 @@ function startCombinedWS(){
 
 
 
-<!-- === AGGRESSIVE 1-MIN MODE + TRADE POPUPS (NO AUTO-OFF) === -->
+<!-- === ADD-ON: Aggressive 1-Minute Mode (auto-off after 1 min) === -->
 <style>
 #toastBox {
   position: fixed; bottom: 30px; right: 30px;
@@ -862,12 +862,14 @@ function showToast(msg) {
   t.timer = setTimeout(() => (t.style.opacity = 0), 4000);
 }
 
-// === Add Aggressive Mode Option ===
+// === Add Aggressive Option to dropdown ===
 const modeSelect = document.getElementById('modeSelect');
 const aggrOpt = document.createElement('option');
 aggrOpt.value = 'aggressive';
 aggrOpt.textContent = 'Aggressive 1-Minute (⚡)';
 modeSelect.appendChild(aggrOpt);
+
+let aggrTimer = null;
 
 // === Aggressive Mode Behavior ===
 modeSelect.addEventListener('change', e => {
@@ -877,31 +879,43 @@ modeSelect.addEventListener('change', e => {
   if (tradeOptions.mode === 'daily') preloadHigherTF();
   else if (tradeOptions.mode === 'scalp') preloadMultiTF();
 
-  // --- Aggressive Mode Settings (PERMANENT)
   if (tradeOptions.mode === 'aggressive') {
-    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (no auto-off)');
-    showToast('⚡ Aggressive 1-Minute Mode ACTIVATED — will remain active until changed manually');
+    // --- Activate Aggressive Settings
+    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
+    showToast('⚡ Aggressive 1-Minute Mode ON — auto-off after 1 minute');
 
+    // temporarily tighten risk settings
     tradeOptions.atrMult = 1.0;  // tighter stop-loss
-    tradeOptions.rrMult = 2.0;   // faster take-profit
-    tradeOptions.pos = 'both';
+    tradeOptions.rrMult  = 2.0;  // faster take-profit
+    tradeOptions.pos     = 'both';
     preloadMultiTF();
 
     showToast(`📊 TP/SL: RR ${tradeOptions.rrMult}x | ATR ${tradeOptions.atrMult}x`);
+
+    clearTimeout(aggrTimer);
+    aggrTimer = setTimeout(() => {
+      if (document.getElementById('modeSelect').value === 'aggressive') {
+        document.getElementById('modeSelect').value = 'scalp';
+        tradeOptions.mode = 'scalp';
+        tradeOptions.atrMult = 1.4;
+        tradeOptions.rrMult = 2.8;
+        pushLog('⏳ Aggressive mode ended — back to normal scalping.');
+        showToast('⏳ Aggressive mode ended — reverted to normal.');
+      }
+    }, 60_000);
   }
 });
 
-// === Hook Into Trade Signal Logs ===
+// === Hook Toasts into Trade Logs ===
 const oldPushLog = window.pushLog;
 window.pushLog = function(msg) {
   oldPushLog(msg);
-
-  // detect LONG/SHORT entries
   if (msg.includes('ENTRY @')) showToast(`🔔 ${msg}`);
-  if (msg.includes('TP HIT')) showToast(`✅ ${msg}`);
-  if (msg.includes('SL HIT')) showToast(`❌ ${msg}`);
+  if (msg.includes('TP HIT'))  showToast(`✅ ${msg}`);
+  if (msg.includes('SL HIT'))  showToast(`❌ ${msg}`);
 };
 </script>
+
 
 
 
