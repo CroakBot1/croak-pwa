@@ -831,7 +831,14 @@ function startCombinedWS(){
 
 
 
-<!-- === AGGRESSIVE 1-MIN MODE + TRADE POPUPS (ADD-ON) === -->
+
+
+
+
+
+
+
+<!-- === AGGRESSIVE 1-MIN MODE + TRADE POPUPS (NO AUTO-OFF) === -->
 <style>
 #toastBox {
   position: fixed; bottom: 30px; right: 30px;
@@ -862,8 +869,6 @@ aggrOpt.value = 'aggressive';
 aggrOpt.textContent = 'Aggressive 1-Minute (⚡)';
 modeSelect.appendChild(aggrOpt);
 
-let aggressiveTimer = null;
-
 // === Aggressive Mode Behavior ===
 modeSelect.addEventListener('change', e => {
   tradeOptions.mode = e.target.value;
@@ -872,35 +877,21 @@ modeSelect.addEventListener('change', e => {
   if (tradeOptions.mode === 'daily') preloadHigherTF();
   else if (tradeOptions.mode === 'scalp') preloadMultiTF();
 
-  // --- Aggressive Mode Settings
+  // --- Aggressive Mode Settings (PERMANENT)
   if (tradeOptions.mode === 'aggressive') {
-    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
-    showToast('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
+    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (no auto-off)');
+    showToast('⚡ Aggressive 1-Minute Mode ACTIVATED — will remain active until changed manually');
 
-    tradeOptions.mode = 'scalp';
     tradeOptions.atrMult = 1.0;  // tighter stop-loss
     tradeOptions.rrMult = 2.0;   // faster take-profit
     tradeOptions.pos = 'both';
     preloadMultiTF();
 
     showToast(`📊 TP/SL: RR ${tradeOptions.rrMult}x | ATR ${tradeOptions.atrMult}x`);
-
-    clearTimeout(aggressiveTimer);
-    aggressiveTimer = setTimeout(() => {
-      if (document.getElementById('modeSelect').value === 'aggressive') {
-        document.getElementById('modeSelect').value = 'scalp';
-        tradeOptions.mode = 'scalp';
-        tradeOptions.atrMult = 1.4;
-        tradeOptions.rrMult = 2.8;
-        pushLog('⏳ Aggressive mode ended — reverted to normal scalping.');
-        showToast('⏳ Aggressive mode ended — back to normal scalping.');
-      }
-    }, 60_000);
   }
 });
 
 // === Hook Into Trade Signal Logs ===
-// Intercept pushLog() to detect trade events
 const oldPushLog = window.pushLog;
 window.pushLog = function(msg) {
   oldPushLog(msg);
