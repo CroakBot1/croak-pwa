@@ -838,7 +838,8 @@ function startCombinedWS(){
 
 
 
-<!-- === ADD-ON: Aggressive 1-Minute Mode (auto-off after 1 min) === -->
+
+<!-- === ADD-ON: Aggressive 1-Minute Mode (PERMANENT) === -->
 <style>
 #toastBox {
   position: fixed; bottom: 30px; right: 30px;
@@ -869,9 +870,7 @@ aggrOpt.value = 'aggressive';
 aggrOpt.textContent = 'Aggressive 1-Minute (⚡)';
 modeSelect.appendChild(aggrOpt);
 
-let aggrTimer = null;
-
-// === Aggressive Mode Behavior ===
+// === Aggressive Mode Behavior (PERMANENT) ===
 modeSelect.addEventListener('change', e => {
   tradeOptions.mode = e.target.value;
   pushLog(`⚙️ Mode set to ${tradeOptions.mode}`);
@@ -880,29 +879,24 @@ modeSelect.addEventListener('change', e => {
   else if (tradeOptions.mode === 'scalp') preloadMultiTF();
 
   if (tradeOptions.mode === 'aggressive') {
-    // --- Activate Aggressive Settings
-    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (auto-off after 1 minute)');
-    showToast('⚡ Aggressive 1-Minute Mode ON — auto-off after 1 minute');
+    // --- Activate Aggressive Settings (no auto-off)
+    pushLog('⚡ Aggressive 1-Minute Mode ACTIVATED (manual off)');
+    showToast('⚡ Aggressive 1-Minute Mode ON — manual turn-off only');
 
-    // temporarily tighten risk settings
     tradeOptions.atrMult = 1.0;  // tighter stop-loss
     tradeOptions.rrMult  = 2.0;  // faster take-profit
     tradeOptions.pos     = 'both';
     preloadMultiTF();
 
     showToast(`📊 TP/SL: RR ${tradeOptions.rrMult}x | ATR ${tradeOptions.atrMult}x`);
+  }
 
-    clearTimeout(aggrTimer);
-    aggrTimer = setTimeout(() => {
-      if (document.getElementById('modeSelect').value === 'aggressive') {
-        document.getElementById('modeSelect').value = 'scalp';
-        tradeOptions.mode = 'scalp';
-        tradeOptions.atrMult = 1.4;
-        tradeOptions.rrMult = 2.8;
-        pushLog('⏳ Aggressive mode ended — back to normal scalping.');
-        showToast('⏳ Aggressive mode ended — reverted to normal.');
-      }
-    }, 60_000);
+  if (tradeOptions.mode !== 'aggressive') {
+    // revert settings if user switches manually
+    tradeOptions.atrMult = 1.4;
+    tradeOptions.rrMult = 2.8;
+    pushLog('↩️ Aggressive mode turned OFF — back to normal.');
+    showToast('↩️ Aggressive mode OFF — normal scalping resumed.');
   }
 });
 
