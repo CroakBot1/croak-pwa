@@ -206,7 +206,6 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-
 <script>
 (function () {
   const SERVERS = [
@@ -216,17 +215,9 @@ observer.observe(document.body,{childList:true, subtree:true});
 
   const _oldFetch = window.fetch;
 
-  const relayEndpoints = [
-    "/api/v3/ticker/price",
-    "/api/v3/exchangeInfo",
-    "/api/v3/depth",
-    "/api/v3/klines",
-    "/api/v3/ping"
-  ];
-
   window.fetch = async function (url, options) {
-    // check if url is Binance endpoint
-    if (typeof url === "string" && relayEndpoints.some(e => url.includes(e))) {
+    // check if it's a Binance API URL
+    if (typeof url === "string" && url.startsWith("https://api.binance.com")) {
       for (let i = 0; i < SERVERS.length; i++) {
         const server = SERVERS[i];
         const proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, server);
@@ -235,7 +226,6 @@ observer.observe(document.body,{childList:true, subtree:true});
           console.log(`🌐 Trying server ${i + 1}: ${server}`);
           const res = await _oldFetch(proxiedUrl, options);
 
-          // check if successful HTTP response
           if (res && res.ok) {
             console.log(`✅ Success via ${server}`);
             return res;
@@ -243,12 +233,10 @@ observer.observe(document.body,{childList:true, subtree:true});
             console.warn(`⚠️ Server ${server} returned status ${res.status}`);
           }
         } catch (err) {
-          // catch network-level or CORS fetch errors
           console.warn(`🚨 Fetch failed for ${server}:`, err.message);
         }
       }
 
-      // if all servers fail
       throw new Error("❌ All relay servers failed (network or bad response).");
     }
 
@@ -257,6 +245,7 @@ observer.observe(document.body,{childList:true, subtree:true});
   };
 })();
 </script>
+
 
 
 
