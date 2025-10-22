@@ -216,7 +216,6 @@ observer.observe(document.body,{childList:true, subtree:true});
 
   const _oldFetch = window.fetch;
 
-  // List of Binance endpoints to relay
   const relayEndpoints = [
     "/api/v3/ticker/price",
     "/api/v3/exchangeInfo",
@@ -225,37 +224,40 @@ observer.observe(document.body,{childList:true, subtree:true});
     "/api/v3/ping"
   ];
 
-  // Override global fetch
   window.fetch = async function (url, options) {
-    if (typeof url === "string") {
-      const match = relayEndpoints.find(e => url.includes(e));
-      if (match) {
-        console.log("🔄 Relayed fetch →", match);
+    // check if url is Binance endpoint
+    if (typeof url === "string" && relayEndpoints.some(e => url.includes(e))) {
+      for (let i = 0; i < SERVERS.length; i++) {
+        const server = SERVERS[i];
+        const proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, server);
 
-        for (let i = 0; i < SERVERS.length; i++) {
-          const server = SERVERS[i];
-          const proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, server);
+        try {
+          console.log(`🌐 Trying server ${i + 1}: ${server}`);
+          const res = await _oldFetch(proxiedUrl, options);
 
-          try {
-            const res = await _oldFetch(proxiedUrl, options);
-            if (!res.ok) throw new Error(`Server ${i + 1} responded with ${res.status}`);
-            console.log(`✅ Using server: ${server}`);
+          // check if successful HTTP response
+          if (res && res.ok) {
+            console.log(`✅ Success via ${server}`);
             return res;
-          } catch (err) {
-            console.warn(`⚠️ Server ${server} failed:`, err.message);
-            // try next server
+          } else {
+            console.warn(`⚠️ Server ${server} returned status ${res.status}`);
           }
+        } catch (err) {
+          // catch network-level or CORS fetch errors
+          console.warn(`🚨 Fetch failed for ${server}:`, err.message);
         }
-
-        throw new Error("❌ All relay servers failed.");
       }
+
+      // if all servers fail
+      throw new Error("❌ All relay servers failed (network or bad response).");
     }
 
-    // Default fetch if not a Binance endpoint
+    // otherwise, normal fetch
     return _oldFetch(url, options);
   };
 })();
 </script>
+
 
 
 
