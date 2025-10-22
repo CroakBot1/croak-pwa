@@ -245,10 +245,11 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <script>
 (function () {
-  const API_SERVER = "https://api-server-rg0h.onrender.com";
+  // ✅ Updated server link
+  const API_SERVER = "https://api-server-2-dkuk.onrender.com";
+  const DEBUG = true;
   const _oldFetch = window.fetch;
 
-  // List of Binance endpoints we want to relay
   const relayEndpoints = [
     "/api/v3/ticker/price",
     "/api/v3/exchangeInfo",
@@ -257,34 +258,27 @@ observer.observe(document.body,{childList:true, subtree:true});
     "/api/v3/ping"
   ];
 
-  // Override fetch
   window.fetch = async function (url, options) {
     try {
+      let proxiedUrl = url;
+
       if (typeof url === "string") {
         const match = relayEndpoints.find(e => url.includes(e));
         if (match) {
-          console.log("🔄 Relayed fetch →", match);
-
-          // Map Binance endpoint → proxy endpoint
-          const proxiedUrl = url.replace(
-            /^https:\/\/api\.binance\.com/,
-            API_SERVER
-          );
-
-          const res = await _oldFetch(proxiedUrl, options);
-          return res;
+          proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
+          if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
         }
       }
 
-      // Fallback to normal fetch
-      return _oldFetch(url, options);
+      return await _oldFetch(proxiedUrl, options);
     } catch (err) {
-      console.error("❌ Relay error:", err.message);
+      console.error(`❌ Relay error [${url}]:`, err);
       throw err;
     }
   };
 })();
 </script>
+
 
 
 
