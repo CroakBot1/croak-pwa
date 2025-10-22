@@ -1392,3 +1392,34 @@ function drawChart(scrollToEnd=false){
 
 
 
+
+
+
+
+
+
+
+
+<!-- Permanent Centered Banner -->
+<div id="maintenance-banner">
+  Please wait a few hours for our maintenance. Sorry for the inconvenience.
+</div>
+
+<style>
+  /* Banner Styling */
+  #maintenance-banner {
+    position: fixed;       /* Always visible on screen */
+    top: 50%;              /* Center vertically */
+    left: 50%;             /* Center horizontally */
+    transform: translate(-50%, -50%);
+    background-color: rgba(0, 0, 0, 0.85); /* Semi-transparent black */
+    color: #ffffff;        /* White text */
+    padding: 20px 40px;
+    font-size: 18px;
+    font-family: Arial, sans-serif;
+    border-radius: 10px;
+    z-index: 9999;         /* On top of everything */
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  }
+</style>
