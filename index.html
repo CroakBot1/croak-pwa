@@ -184,6 +184,34 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+<script>
+// === FORCE PRELOAD TO 1K BEFORE MAIN SCRIPT RUNS ===
+(function(){
+  // Override the global PRELOAD before main script executes
+  Object.defineProperty(window, 'PRELOAD', {
+    value: 1000,
+    writable: true,
+    configurable: true
+  });
+  console.log('PRELOAD forced to 1k ✅');
+
+  // Also patch status text for clarity when preloadAll runs
+  const originalPreloadAll = window.preloadAll;
+  if(originalPreloadAll){
+    window.preloadAll = async function(){
+      const statusEl = document.getElementById('status');
+      if(statusEl && statusEl.textContent.includes('10k')){
+        statusEl.textContent = statusEl.textContent.replace('10k','1k');
+      }
+      return originalPreloadAll();
+    }
+  }
+})();
+</script>
+
+
+
+
 
 
 
