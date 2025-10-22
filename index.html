@@ -236,43 +236,47 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <script>
 (function () {
-  const SERVERS = [
-    "https://api-server-rg0h.onrender.com", // primary
-    "https://api-server-2-dkuk.onrender.com" // backup
-  ];
-
+  const API_SERVER = "https://api-server-rg0h.onrender.com";
   const _oldFetch = window.fetch;
 
+  // List of Binance endpoints we want to relay
+  const relayEndpoints = [
+    "/api/v3/ticker/price",
+    "/api/v3/exchangeInfo",
+    "/api/v3/depth",
+    "/api/v3/klines",
+    "/api/v3/ping"
+  ];
+
+  // Override fetch
   window.fetch = async function (url, options) {
-    // check if it's a Binance API URL
-    if (typeof url === "string" && url.startsWith("https://api.binance.com")) {
-      for (let i = 0; i < SERVERS.length; i++) {
-        const server = SERVERS[i];
-        const proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, server);
+    try {
+      if (typeof url === "string") {
+        const match = relayEndpoints.find(e => url.includes(e));
+        if (match) {
+          console.log("🔄 Relayed fetch →", match);
 
-        try {
-          console.log(`🌐 Trying server ${i + 1}: ${server}`);
+          // Map Binance endpoint → proxy endpoint
+          const proxiedUrl = url.replace(
+            /^https:\/\/api\.binance\.com/,
+            API_SERVER
+          );
+
           const res = await _oldFetch(proxiedUrl, options);
-
-          if (res && res.ok) {
-            console.log(`✅ Success via ${server}`);
-            return res;
-          } else {
-            console.warn(`⚠️ Server ${server} returned status ${res.status}`);
-          }
-        } catch (err) {
-          console.warn(`🚨 Fetch failed for ${server}:`, err.message);
+          return res;
         }
       }
 
-      throw new Error("❌ All relay servers failed (network or bad response).");
+      // Fallback to normal fetch
+      return _oldFetch(url, options);
+    } catch (err) {
+      console.error("❌ Relay error:", err.message);
+      throw err;
     }
-
-    // otherwise, normal fetch
-    return _oldFetch(url, options);
   };
 })();
 </script>
+
 
 
 
