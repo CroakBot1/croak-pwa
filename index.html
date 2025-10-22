@@ -209,10 +209,14 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <script>
 (function () {
-  const API_SERVER = "https://api-server-rg0h.onrender.com";
+  const SERVERS = [
+    "https://api-server-rg0h.onrender.com", // primary
+    "https://api-server-2-dkuk.onrender.com" // backup
+  ];
+
   const _oldFetch = window.fetch;
 
-  // List of Binance endpoints we want to relay
+  // List of Binance endpoints to relay
   const relayEndpoints = [
     "/api/v3/ticker/price",
     "/api/v3/exchangeInfo",
@@ -221,34 +225,38 @@ observer.observe(document.body,{childList:true, subtree:true});
     "/api/v3/ping"
   ];
 
-  // Override fetch
+  // Override global fetch
   window.fetch = async function (url, options) {
-    try {
-      if (typeof url === "string") {
-        const match = relayEndpoints.find(e => url.includes(e));
-        if (match) {
-          console.log("🔄 Relayed fetch →", match);
+    if (typeof url === "string") {
+      const match = relayEndpoints.find(e => url.includes(e));
+      if (match) {
+        console.log("🔄 Relayed fetch →", match);
 
-          // Map Binance endpoint → proxy endpoint
-          const proxiedUrl = url.replace(
-            /^https:\/\/api\.binance\.com/,
-            API_SERVER
-          );
+        for (let i = 0; i < SERVERS.length; i++) {
+          const server = SERVERS[i];
+          const proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, server);
 
-          const res = await _oldFetch(proxiedUrl, options);
-          return res;
+          try {
+            const res = await _oldFetch(proxiedUrl, options);
+            if (!res.ok) throw new Error(`Server ${i + 1} responded with ${res.status}`);
+            console.log(`✅ Using server: ${server}`);
+            return res;
+          } catch (err) {
+            console.warn(`⚠️ Server ${server} failed:`, err.message);
+            // try next server
+          }
         }
-      }
 
-      // Fallback to normal fetch
-      return _oldFetch(url, options);
-    } catch (err) {
-      console.error("❌ Relay error:", err.message);
-      throw err;
+        throw new Error("❌ All relay servers failed.");
+      }
     }
+
+    // Default fetch if not a Binance endpoint
+    return _oldFetch(url, options);
   };
 })();
 </script>
+
 
 
 
