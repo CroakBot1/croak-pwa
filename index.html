@@ -1338,3 +1338,60 @@ function drawChart(scrollToEnd=false){
   observer.observe(loginOverlay, { attributes: true, attributeFilter: ["style"] });
 })();
 </script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- 🟢 Maintenance Banner -->
+<div id="maintenance-banner">
+  ⚙️ Please stand by — we’re currently under maintenance by <strong>Quantum</strong>.
+</div>
+
+<style>
+  #maintenance-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: linear-gradient(90deg, #0d0d0d, #1a1a1a);
+    color: #fff;
+    text-align: center;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 16px;
+    padding: 10px 0;
+    z-index: 9999;
+    opacity: 0;
+    animation: fadeIn 2s ease-in-out forwards;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+
+<script>
+  // optional auto-hide after 10 seconds
+  setTimeout(() => {
+    const banner = document.getElementById("maintenance-banner");
+    if (banner) {
+      banner.style.transition = "opacity 1.5s";
+      banner.style.opacity = "0";
+      setTimeout(() => banner.remove(), 2000);
+    }
+  }, 10000);
+</script>
