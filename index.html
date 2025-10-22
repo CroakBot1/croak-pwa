@@ -255,67 +255,6 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-<script>
-(function () {
-  const SERVERS = [
-    "https://api-server-rg0h.onrender.com", // primary
-    "https://api-server-2-dkuk.onrender.com" // backup
-  ];
-
-  const relayEndpoints = [
-    "/api/v3/ticker/price",
-    "/api/v3/exchangeInfo",
-    "/api/v3/depth",
-    "/api/v3/klines",
-    "/api/v3/ping"
-  ];
-
-  const _oldFetch = window.fetch;
-
-  async function tryFetchWithFallback(url, options) {
-    let lastError;
-    for (const server of SERVERS) {
-      try {
-        // Replace Binance base with proxy base
-        const proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, server);
-        console.log("🔄 Trying:", proxiedUrl);
-        const res = await _oldFetch(proxiedUrl, options);
-        if (res.ok) {
-          if (server !== SERVERS[0]) {
-            console.warn("⚠️ Switched to backup server:", server);
-          }
-          return res;
-        }
-        lastError = new Error(`HTTP ${res.status}`);
-      } catch (err) {
-        console.warn(`⚠️ Failed from ${server}:`, err.message);
-        lastError = err;
-      }
-    }
-    throw lastError || new Error("All servers failed");
-  }
-
-  // Override global fetch
-  window.fetch = async function (url, options) {
-    try {
-      if (typeof url === "string") {
-        const match = relayEndpoints.find(e => url.includes(e));
-        if (match) {
-          console.log("🔁 Intercepted Binance fetch:", match);
-          return await tryFetchWithFallback(url, options);
-        }
-      }
-      // Default: untouched fetch
-      return _oldFetch(url, options);
-    } catch (err) {
-      console.error("❌ Dual-server relay error:", err.message);
-      throw err;
-    }
-  };
-
-  console.log("✅ Binance dual-server relay active:", SERVERS.join(" | "));
-})();
-</script>
 
 
 
