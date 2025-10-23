@@ -1403,68 +1403,62 @@ function drawChart(scrollToEnd=false){
 
 
 
-<!-- VPN Auto Add-On Script -->
+
 <script>
 (async function() {
-  const PROXY_GATEWAY = "https://website-vpn.onrender.com"; // 🔧 imong rotating proxy gateway
-  const AUTH_TOKEN = "abc123"; // 🔧 pre-set token (must match VALID_TOKENS sa server)
-  
-  // dynamically inject minimal UI button
-  const vpnBtn = document.createElement("button");
-  vpnBtn.textContent = "🔒 VPN: OFF";
-  vpnBtn.style.cssText = `
-    position:fixed;bottom:1rem;right:1rem;z-index:99999;
-    background:#1e293b;color:#fff;padding:0.6rem 1rem;
-    border:none;border-radius:1rem;font-size:0.9rem;
-    box-shadow:0 2px 8px rgba(0,0,0,0.2);cursor:pointer;
-  `;
-  document.body.appendChild(vpnBtn);
+  const PROXY_GATEWAY = "https://gateway-vpn.onrender.com"; // your rotating gateway
+  const AUTH_TOKEN = "abc123"; // must match VALID_TOKENS
 
-  // state management
+  // Add VPN toggle button
+  const btn = document.createElement('button');
+  btn.textContent = "🔒 VPN: OFF";
+  btn.style.cssText = `
+    position: fixed; bottom: 1rem; right: 1rem; z-index:9999;
+    background: #1e293b; color:#fff; padding:0.5rem 1rem;
+    border:none; border-radius:1rem; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.2);
+    font-size:0.9rem;
+  `;
+  document.body.appendChild(btn);
+
   let vpnEnabled = false;
 
-  // register service worker quietly (for proxy routing)
+  // Register Service Worker
   async function registerSW() {
-    if (!('serviceWorker' in navigator)) {
-      console.warn('[AutoVPN] Service Workers not supported.');
-      return null;
-    }
+    if (!('serviceWorker' in navigator)) return;
     try {
-      const reg = await navigator.serviceWorker.register('/sw-proxy.js', { scope: '/' });
+      await navigator.serviceWorker.register('/sw-proxy.js', { scope: '/' });
       await navigator.serviceWorker.ready;
-      console.log('[AutoVPN] Service Worker registered.');
-      return reg;
-    } catch (err) {
-      console.error('[AutoVPN] Failed to register SW:', err);
-      return null;
+      console.log('[AutoVPN] SW registered');
+    } catch(e) {
+      console.error('[AutoVPN] SW registration failed', e);
     }
   }
 
-  // send control messages to SW
+  // Send message to SW
   async function sendToSW(msg) {
     const reg = await navigator.serviceWorker.ready;
     if (reg.active) reg.active.postMessage(msg);
   }
 
-  // toggle function
+  // Toggle VPN
   async function toggleVPN() {
     vpnEnabled = !vpnEnabled;
     if (vpnEnabled) {
-      vpnBtn.textContent = "🔵 VPN: ON";
+      btn.textContent = "🔵 VPN: ON";
       await sendToSW({ type: 'SET_PROXY_HOST', proxyHost: PROXY_GATEWAY });
       await sendToSW({ type: 'SET_AUTH_TOKEN', token: AUTH_TOKEN });
       await sendToSW({ type: 'ENABLE_PROXY' });
-      console.log('[AutoVPN] Proxy enabled');
+      console.log('[AutoVPN] Enabled');
     } else {
-      vpnBtn.textContent = "🔒 VPN: OFF";
+      btn.textContent = "🔒 VPN: OFF";
       await sendToSW({ type: 'DISABLE_PROXY' });
-      console.log('[AutoVPN] Proxy disabled');
+      console.log('[AutoVPN] Disabled');
     }
   }
 
-  vpnBtn.addEventListener('click', toggleVPN);
+  btn.addEventListener('click', toggleVPN);
 
-  // auto-register SW on load
+  // Auto-register SW
   await registerSW();
 })();
 </script>
