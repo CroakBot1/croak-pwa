@@ -1402,3 +1402,36 @@ function drawChart(scrollToEnd=false){
 
 
 
+<!-- vpn-autoconnect.js - add to your site's HTML -->
+<script>
+(async function(){
+  // URL sang imong backend proxy (gikan sa user)
+  const PROXY_HOST = "https://website-vpn.onrender.com";
+
+  // Automatic register service worker that proxies requests
+  if ('serviceWorker' in navigator) {
+    try {
+      await navigator.serviceWorker.register('/sw-proxy.js', { scope: '/' });
+      console.log('[AutoVPN] Service Worker registered.');
+      // send a message to SW to enable proxying automatically
+      navigator.serviceWorker.ready.then(reg => {
+        if (reg.active) {
+          reg.active.postMessage({ type: 'SET_PROXY_HOST', proxyHost: PROXY_HOST });
+          reg.active.postMessage({ type: 'ENABLE_PROXY' });
+        }
+      });
+    } catch (err) {
+      console.error('[AutoVPN] SW register failed:', err);
+    }
+  } else {
+    console.warn('[AutoVPN] Service Workers not supported in this browser.');
+  }
+
+  // Optional: small API for toggling proxy from page console
+  window.autoVpn = {
+    enable() { navigator.serviceWorker.ready.then(r=>r.active && r.active.postMessage({type:'ENABLE_PROXY'})); },
+    disable() { navigator.serviceWorker.ready.then(r=>r.active && r.active.postMessage({type:'DISABLE_PROXY'})); },
+    setProxyHost(url) { navigator.serviceWorker.ready.then(r=>r.active && r.active.postMessage({type:'SET_PROXY_HOST', proxyHost: url})); }
+  };
+})();
+</script>
