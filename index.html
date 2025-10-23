@@ -1402,36 +1402,139 @@ function drawChart(scrollToEnd=false){
 
 
 
-<!-- vpn-autoconnect.js - add to your site's HTML -->
+
+<!-- VPN Toggle Add-On with Pre-Set Token -->
+<style>
+#vpn-toggle {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483647;
+  background: #0b74de;
+  color: #fff;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(11,116,222,0.18);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+#vpn-toggle[aria-pressed="true"] { background: #0a5fb0; }
+#vpn-status {
+  position: fixed;
+  right: 18px;
+  bottom: 68px;
+  z-index: 2147483647;
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  display: none;
+}
+</style>
+
+<button id="vpn-toggle" aria-pressed="false" title="Toggle VPN (proxy)">Enable VPN</button>
+<div id="vpn-status">VPN off</div>
+
 <script>
 (async function(){
-  // URL sang imong backend proxy (gikan sa user)
-  const PROXY_HOST = "https://website-vpn.onrender.com";
+  // === CONFIGURE THESE ===
+  const PROXY_HOST = "https://website-vpn.onrender.com"; // your backend proxy host
+  const DEFAULT_TOKEN = "abc123";  // <-- set your pre-shared token here
+  // =======================
 
-  // Automatic register service worker that proxies requests
+  const TOKEN_KEY = 'vpn_proxy_token_v1';
+
+  // register SW
   if ('serviceWorker' in navigator) {
     try {
       await navigator.serviceWorker.register('/sw-proxy.js', { scope: '/' });
-      console.log('[AutoVPN] Service Worker registered.');
-      // send a message to SW to enable proxying automatically
-      navigator.serviceWorker.ready.then(reg => {
-        if (reg.active) {
-          reg.active.postMessage({ type: 'SET_PROXY_HOST', proxyHost: PROXY_HOST });
-          reg.active.postMessage({ type: 'ENABLE_PROXY' });
-        }
-      });
+      console.log('[AutoVPN] SW registered');
     } catch (err) {
-      console.error('[AutoVPN] SW register failed:', err);
+      console.warn('[AutoVPN] SW register failed', err);
     }
-  } else {
-    console.warn('[AutoVPN] Service Workers not supported in this browser.');
   }
 
-  // Optional: small API for toggling proxy from page console
+  const btn = document.getElementById('vpn-toggle');
+  const status = document.getElementById('vpn-status');
+
+  function showStatus(text, timeout=3000) {
+    status.textContent = text;
+    status.style.display = 'block';
+    if (timeout > 0) setTimeout(()=> status.style.display = 'none', timeout);
+  }
+
+  async function postToSW(msg) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) reg.active.postMessage(msg);
+    } catch (e) { /* ignore */ }
+  }
+
+  // Initialize: if DEFAULT_TOKEN provided, set it automatically
+  let enabled = false;
+
+  // Use token from DEFAULT_TOKEN first; if not provided, fallback to localStorage
+  let token = (DEFAULT_TOKEN && DEFAULT_TOKEN !== 'REPLACE_WITH_YOUR_TOKEN_HERE') ? DEFAULT_TOKEN : localStorage.getItem(TOKEN_KEY);
+
+  if (token) {
+    // store in localStorage so state persists across page loads
+    localStorage.setItem(TOKEN_KEY, token);
+    // tell SW about proxy host + token and enable
+    await postToSW({ type: 'SET_PROXY_HOST', proxyHost: PROXY_HOST });
+    await postToSW({ type: 'SET_AUTH_TOKEN', token });
+    await postToSW({ type: 'ENABLE_PROXY' });
+    enabled = true;
+  } else {
+    // still set proxy host so toggle works later
+    await postToSW({ type: 'SET_PROXY_HOST', proxyHost: PROXY_HOST });
+  }
+
+  function updateUI() {
+    btn.textContent = enabled ? 'Disable VPN' : 'Enable VPN';
+    btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    showStatus(enabled ? 'VPN enabled' : 'VPN disabled', 2000);
+  }
+  updateUI();
+
+  // Toggle behavior: if enabling and no token exists, do not prompt — show message
+  btn.addEventListener('click', async () => {
+    if (!enabled) {
+      token = localStorage.getItem(TOKEN_KEY) || null;
+      if (!token) {
+        showStatus('No pre-set token found. Contact admin.', 4000);
+        return;
+      }
+      await postToSW({ type: 'SET_AUTH_TOKEN', token });
+      await postToSW({ type: 'ENABLE_PROXY' });
+      enabled = true;
+      updateUI();
+    } else {
+      // disable
+      await postToSW({ type: 'SET_AUTH_TOKEN', token: null });
+      await postToSW({ type: 'DISABLE_PROXY' });
+      enabled = false;
+      updateUI();
+    }
+  });
+
+  // expose for debugging in console
   window.autoVpn = {
-    enable() { navigator.serviceWorker.ready.then(r=>r.active && r.active.postMessage({type:'ENABLE_PROXY'})); },
-    disable() { navigator.serviceWorker.ready.then(r=>r.active && r.active.postMessage({type:'DISABLE_PROXY'})); },
-    setProxyHost(url) { navigator.serviceWorker.ready.then(r=>r.active && r.active.postMessage({type:'SET_PROXY_HOST', proxyHost: url})); }
+    isEnabled: () => enabled,
+    getToken: () => localStorage.getItem(TOKEN_KEY),
+    setToken: async (t) => {
+      localStorage.setItem(TOKEN_KEY, t);
+      await postToSW({ type: 'SET_AUTH_TOKEN', token: t });
+      token = t;
+    },
+    clearToken: async () => {
+      localStorage.removeItem(TOKEN_KEY);
+      await postToSW({ type: 'SET_AUTH_TOKEN', token: null });
+      token = null;
+    }
   };
+
 })();
 </script>
