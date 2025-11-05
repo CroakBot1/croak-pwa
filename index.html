@@ -242,11 +242,10 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
-
 <script>
 (function () {
-  const API_SERVER = "https://api-server-2-dkuk.onrender.com";
-  const PUBLIC_BINANCE_PROXY = "https://api.binance.com"; // fallback
+  const API_SERVER = "https://api-server-2-dkuk.onrender.com"; // primary relay
+  const PUBLIC_BINANCE = "https://api.binance.com";             // fallback if 451
   const DEBUG = true;
 
   const relayEndpoints = [
@@ -259,35 +258,46 @@ observer.observe(document.body,{childList:true, subtree:true});
 
   const _oldFetch = window.fetch;
 
-  window.fetch = async function (url, options) {
-    try {
-      let proxiedUrl = url;
+  async function fetchWithFallback(url, options) {
+    let proxiedUrl = url;
 
-      if (typeof url === "string") {
-        const match = relayEndpoints.find(e => url.includes(e));
-        if (match) {
-          proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
-          if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
-        }
+    // Step 1: Try relay server if applicable
+    if (typeof url === "string") {
+      const match = relayEndpoints.find(e => url.includes(e));
+      if (match) {
+        proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
+        if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
       }
+    }
 
+    try {
       let response = await _oldFetch(proxiedUrl, options);
 
-      // If 451 or other error, fallback to public proxy
-      if (response.status === 451) {
-        if (DEBUG) console.warn(`⚠️ 451 detected, falling back to public proxy: ${PUBLIC_BINANCE_PROXY}`);
-        proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, PUBLIC_BINANCE_PROXY);
+      // Step 2: If 451, fallback to public Binance
+      if (response.status === 451 && typeof url === "string") {
+        if (DEBUG) console.warn("⚠️ 451 detected, falling back to public Binance API");
+        proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, PUBLIC_BINANCE);
         response = await _oldFetch(proxiedUrl, options);
       }
 
       return response;
     } catch (err) {
-      console.error(`❌ Fetch relay error [${url}]:`, err);
+      // Step 3: Network/CORS failure → fallback via AllOrigins proxy
+      if (typeof url === "string") {
+        const allOriginsUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        if (DEBUG) console.warn(`⚠️ Network error, using AllOrigins proxy → ${allOriginsUrl}`);
+        return _oldFetch(allOriginsUrl, options);
+      }
+
+      console.error(`❌ Fetch error [${url}]:`, err);
       throw err;
     }
-  };
+  }
+
+  window.fetch = fetchWithFallback;
 })();
 </script>
+
 
 
 
