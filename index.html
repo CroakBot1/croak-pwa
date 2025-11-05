@@ -243,60 +243,58 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 <script>
-(function () {
-  const API_SERVER = "https://api-server-2-dkuk.onrender.com"; // primary relay
-  const PUBLIC_BINANCE = "https://api.binance.com";             // fallback if 451
-  const DEBUG = true;
+const API_SERVER = "https://api-server-2-dkuk.onrender.com";
+const DEBUG = true;
+const _oldFetch = window.fetch;
 
-  const relayEndpoints = [
-    "/api/v3/ticker/price",
-    "/api/v3/exchangeInfo",
-    "/api/v3/depth",
-    "/api/v3/klines",
-    "/api/v3/ping"
-  ];
-
-  const _oldFetch = window.fetch;
-
-  async function fetchWithFallback(url, options) {
+window.fetch = async function(url, options) {
+  try {
     let proxiedUrl = url;
+    const relayEndpoints = [
+      "/api/v3/ticker/price",
+      "/api/v3/exchangeInfo",
+      "/api/v3/depth",
+      "/api/v3/klines",
+      "/api/v3/ping"
+    ];
 
-    // Step 1: Try relay server if applicable
+    const match = relayEndpoints.find(e => url.includes(e));
+    if (match) {
+      proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
+      if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
+    }
+
+    const response = await _oldFetch(proxiedUrl, options);
+    const contentType = response.headers.get("content-type");
+
+    if (contentType && contentType.includes("application/json")) {
+      return await response.json();
+    } else {
+      const text = await response.text();
+      if (DEBUG) console.warn(`⚠️ Non-JSON response from ${proxiedUrl}:`, text);
+      return text;
+    }
+  } catch (err) {
+    console.error(`❌ Relay fetch failed [${url}]:`, err);
+
+    // Optional fallback via AllOrigins
     if (typeof url === "string") {
-      const match = relayEndpoints.find(e => url.includes(e));
-      if (match) {
-        proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
-        if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
+      try {
+        const fallbackUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        if (DEBUG) console.log("🔄 Falling back via AllOrigins →", fallbackUrl);
+        const fallbackResponse = await _oldFetch(fallbackUrl, options);
+        const text = await fallbackResponse.text();
+        try { return JSON.parse(text); } catch { return text; }
+      } catch (err2) {
+        console.error("❌ Fallback fetch failed:", err2);
       }
     }
 
-    try {
-      let response = await _oldFetch(proxiedUrl, options);
-
-      // Step 2: If 451, fallback to public Binance
-      if (response.status === 451 && typeof url === "string") {
-        if (DEBUG) console.warn("⚠️ 451 detected, falling back to public Binance API");
-        proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, PUBLIC_BINANCE);
-        response = await _oldFetch(proxiedUrl, options);
-      }
-
-      return response;
-    } catch (err) {
-      // Step 3: Network/CORS failure → fallback via AllOrigins proxy
-      if (typeof url === "string") {
-        const allOriginsUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-        if (DEBUG) console.warn(`⚠️ Network error, using AllOrigins proxy → ${allOriginsUrl}`);
-        return _oldFetch(allOriginsUrl, options);
-      }
-
-      console.error(`❌ Fetch error [${url}]:`, err);
-      throw err;
-    }
+    throw err;
   }
-
-  window.fetch = fetchWithFallback;
-})();
+};
 </script>
+
 
 
 
