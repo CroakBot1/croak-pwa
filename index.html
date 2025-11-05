@@ -245,10 +245,9 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <script>
 (function () {
-  // ✅ Updated server link
   const API_SERVER = "https://api-server-2-dkuk.onrender.com";
+  const PUBLIC_BINANCE_PROXY = "https://api.binance.com"; // fallback
   const DEBUG = true;
-  const _oldFetch = window.fetch;
 
   const relayEndpoints = [
     "/api/v3/ticker/price",
@@ -257,6 +256,8 @@ observer.observe(document.body,{childList:true, subtree:true});
     "/api/v3/klines",
     "/api/v3/ping"
   ];
+
+  const _oldFetch = window.fetch;
 
   window.fetch = async function (url, options) {
     try {
@@ -270,14 +271,24 @@ observer.observe(document.body,{childList:true, subtree:true});
         }
       }
 
-      return await _oldFetch(proxiedUrl, options);
+      let response = await _oldFetch(proxiedUrl, options);
+
+      // If 451 or other error, fallback to public proxy
+      if (response.status === 451) {
+        if (DEBUG) console.warn(`⚠️ 451 detected, falling back to public proxy: ${PUBLIC_BINANCE_PROXY}`);
+        proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, PUBLIC_BINANCE_PROXY);
+        response = await _oldFetch(proxiedUrl, options);
+      }
+
+      return response;
     } catch (err) {
-      console.error(`❌ Relay error [${url}]:`, err);
+      console.error(`❌ Fetch relay error [${url}]:`, err);
       throw err;
     }
   };
 })();
 </script>
+
 
 
 
