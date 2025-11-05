@@ -246,144 +246,30 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <script>
 (function () {
-  const BASES = [
-    "https://tunnelling-website.onrender.com",
-    "https://croak-express-gateway-henna.vercel.app",
-    "https://croak-bot-proxy-three.vercel.app",
-    "https://croak-pwa.vercel.app"
-  ];
-
+  // ✅ Updated server link (changed as you asked)
+  const API_SERVER = "https://tunnelling-website.onrender.com";
   const DEBUG = true;
   const _oldFetch = window.fetch;
-  const relayEndpoints = [
-    "/api/v3/ticker/price",
-    "/api/v3/exchangeInfo",
-    "/api/v3/depth",
-    "/api/v3/klines",
-    "/api/v3/ping"
-  ];
 
-  let workingBases = [];
-  let currentBaseIndex = 0;
-
-  function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  function getCachedBaseIndex() {
-    const index = localStorage.getItem("workingBaseIndex");
-    return index !== null ? parseInt(index) : 0;
-  }
-
-  function setCachedBaseIndex(index) {
-    localStorage.setItem("workingBaseIndex", index);
-  }
-
-  async function testBase(base) {
-    try {
-      const res = await _oldFetch(`${base}/api/v3/ticker/price`);
-      if (!res.ok) return false;
-      const data = await res.json();
-      return Array.isArray(data);
-    } catch {
-      return false;
-    }
-  }
-
-  async function initializeBases() {
-    if (workingBases.length) return;
-
-    // Test all bases in parallel
-    const results = await Promise.all(BASES.map(async (b) => {
-      const ok = await testBase(b);
-      if (ok && DEBUG) console.log(`✅ Base working: ${b}`);
-      return ok ? b : null;
-    }));
-    workingBases = results.filter(Boolean);
-
-    if (!workingBases.length) throw new Error("No working proxy bases found.");
-
-    // Start with cached base if valid
-    const cachedIndex = getCachedBaseIndex();
-    if (cachedIndex < workingBases.length) currentBaseIndex = cachedIndex;
-  }
-
-  async function getWorkingBase() {
-    if (!workingBases.length) await initializeBases();
-    return workingBases[currentBaseIndex];
-  }
-
-  async function rotateBase() {
-    currentBaseIndex = (currentBaseIndex + 1) % workingBases.length;
-    setCachedBaseIndex(currentBaseIndex);
-    if (DEBUG) console.warn(`⚠️ Rotating to next base: ${workingBases[currentBaseIndex]}`);
-  }
-
-  async function fetchWithRetry(url, options = {}, retries = 5, delay = 500) {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const res = await _oldFetch(url, options);
-
-        if (res.status === 429) {
-          const retryAfter = res.headers.get("Retry-After");
-          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : delay * (2 ** attempt);
-          if (DEBUG) console.warn(`⚠️ 429 Too Many Requests. Retrying in ${waitTime}ms...`);
-          await sleep(waitTime);
-          continue;
-        }
-
-        if (!res.ok) {
-          if (DEBUG) console.warn(`⚠️ Fetch failed with status ${res.status}. Retrying...`);
-          await sleep(delay * (2 ** attempt));
-          continue;
-        }
-
-        return res;
-      } catch (err) {
-        if (attempt === retries) throw err;
-        const waitTime = delay * (2 ** attempt);
-        if (DEBUG) console.warn(`❌ Fetch error. Retrying in ${waitTime}ms...`, err);
-        await sleep(waitTime);
-      }
-    }
-  }
-
-  // Override window.fetch for parallel-safe relay
   window.fetch = async function (url, options) {
     try {
       let proxiedUrl = url;
 
-      if (typeof url === "string") {
-        const match = relayEndpoints.find(e => url.includes(e));
-        if (match) {
-          let base = await getWorkingBase();
-          proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, base);
-          if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
-
-          try {
-            return await fetchWithRetry(proxiedUrl, options);
-          } catch (err) {
-            // Rotate base on failure
-            if (workingBases.length > 1) {
-              await rotateBase();
-              base = await getWorkingBase();
-              proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, base);
-              if (DEBUG) console.log("🔄 Retrying with new base →", proxiedUrl);
-              return await fetchWithRetry(proxiedUrl, options);
-            }
-            throw err;
-          }
-        }
+      // Automatically relay any request that begins with api.binance.com
+      if (typeof url === "string" && url.startsWith("https://api.binance.com")) {
+        proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
+        if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
       }
 
-      return await fetchWithRetry(proxiedUrl, options);
+      return await _oldFetch(proxiedUrl, options);
     } catch (err) {
-      console.error(`❌ Relay fetch error [${url}]:`, err);
+      console.error(`❌ Relay error [${url}]:`, err);
       throw err;
     }
   };
 })();
 </script>
+
 
 
 
