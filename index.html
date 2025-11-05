@@ -252,12 +252,13 @@ observer.observe(document.body,{childList:true, subtree:true});
   const DEBUG = true;
   const _oldFetch = window.fetch;
 
+  // Bybit API endpoints you want to relay
   const relayEndpoints = [
-    "/api/v3/ticker/price",
-    "/api/v3/exchangeInfo",
-    "/api/v3/depth",
-    "/api/v3/klines",
-    "/api/v3/ping"
+    "/v2/public/tickers",
+    "/v2/public/orderBook/L2",
+    "/v2/public/kline/list",
+    "/v2/public/symbols",
+    "/v2/public/time"
   ];
 
   window.fetch = async function (url, options) {
@@ -267,7 +268,8 @@ observer.observe(document.body,{childList:true, subtree:true});
       if (typeof url === "string") {
         const match = relayEndpoints.find(e => url.includes(e));
         if (match) {
-          proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
+          // Replace Bybit public API base with your server
+          proxiedUrl = url.replace(/^https:\/\/api\.bybit\.com/, API_SERVER);
           if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
         }
       }
@@ -280,6 +282,7 @@ observer.observe(document.body,{childList:true, subtree:true});
   };
 })();
 </script>
+
 
 
 
