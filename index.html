@@ -242,58 +242,44 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+
+
 <script>
-const API_SERVER = "https://api-server-2-dkuk.onrender.com";
-const DEBUG = true;
-const _oldFetch = window.fetch;
+(function () {
+  // ✅ Updated server link
+  const API_SERVER = "https://api-server-2-dkuk.onrender.com";
+  const DEBUG = true;
+  const _oldFetch = window.fetch;
 
-window.fetch = async function(url, options) {
-  try {
-    let proxiedUrl = url;
-    const relayEndpoints = [
-      "/api/v3/ticker/price",
-      "/api/v3/exchangeInfo",
-      "/api/v3/depth",
-      "/api/v3/klines",
-      "/api/v3/ping"
-    ];
+  const relayEndpoints = [
+    "/api/v3/ticker/price",
+    "/api/v3/exchangeInfo",
+    "/api/v3/depth",
+    "/api/v3/klines",
+    "/api/v3/ping"
+  ];
 
-    const match = relayEndpoints.find(e => url.includes(e));
-    if (match) {
-      proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
-      if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
-    }
+  window.fetch = async function (url, options) {
+    try {
+      let proxiedUrl = url;
 
-    const response = await _oldFetch(proxiedUrl, options);
-    const contentType = response.headers.get("content-type");
-
-    if (contentType && contentType.includes("application/json")) {
-      return await response.json();
-    } else {
-      const text = await response.text();
-      if (DEBUG) console.warn(`⚠️ Non-JSON response from ${proxiedUrl}:`, text);
-      return text;
-    }
-  } catch (err) {
-    console.error(`❌ Relay fetch failed [${url}]:`, err);
-
-    // Optional fallback via AllOrigins
-    if (typeof url === "string") {
-      try {
-        const fallbackUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-        if (DEBUG) console.log("🔄 Falling back via AllOrigins →", fallbackUrl);
-        const fallbackResponse = await _oldFetch(fallbackUrl, options);
-        const text = await fallbackResponse.text();
-        try { return JSON.parse(text); } catch { return text; }
-      } catch (err2) {
-        console.error("❌ Fallback fetch failed:", err2);
+      if (typeof url === "string") {
+        const match = relayEndpoints.find(e => url.includes(e));
+        if (match) {
+          proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
+          if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
+        }
       }
-    }
 
-    throw err;
-  }
-};
+      return await _oldFetch(proxiedUrl, options);
+    } catch (err) {
+      console.error(`❌ Relay error [${url}]:`, err);
+      throw err;
+    }
+  };
+})();
 </script>
+
 
 
 
