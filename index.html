@@ -247,11 +247,10 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <script>
 (function () {
-  const API_SERVER = "https://tunnelling-website.onrender.com"; // live server
+  const API_SERVER = "https://tunnelling-website.onrender.com";
   const DEBUG = true;
   const _oldFetch = window.fetch;
 
-  // Bybit endpoints to proxy
   const relayEndpoints = [
     "/v2/public/tickers",
     "/v2/public/orderBook/L2",
@@ -272,14 +271,16 @@ observer.observe(document.body,{childList:true, subtree:true});
         }
       }
 
-      return await _oldFetch(proxiedUrl, options);
+      const response = await _oldFetch(proxiedUrl, options);
+      return response;
     } catch (err) {
-      console.error(`❌ Relay error [${url}]:`, err);
+      console.error("❌ Relay error:", err);
       throw err;
     }
   };
 })();
 </script>
+
 
 
 
