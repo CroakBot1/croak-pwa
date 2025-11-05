@@ -246,7 +246,7 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <script>
 (function () {
-  const API_SERVER = "https://tunnelling-website.onrender.com";
+  const API_SERVER = "https://tunnelling-website.onrender.com"; // Your server URL
   const DEBUG = true;
   const _oldFetch = window.fetch;
 
@@ -258,17 +258,15 @@ observer.observe(document.body,{childList:true, subtree:true});
     "/api/v3/ping"
   ];
 
-  // Helper: delay in ms
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // Fetch with retry for 429
+  // Fetch with retry on 429
   async function fetchWithRetry(url, options = {}, retries = 5, delay = 500) {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const res = await _oldFetch(url, options);
-
         if (res.status === 429) {
           const retryAfter = res.headers.get("Retry-After");
           const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : delay * (2 ** attempt);
@@ -276,7 +274,6 @@ observer.observe(document.body,{childList:true, subtree:true});
           await sleep(waitTime);
           continue;
         }
-
         return res;
       } catch (err) {
         if (attempt === retries) throw err;
@@ -291,7 +288,6 @@ observer.observe(document.body,{childList:true, subtree:true});
   window.fetch = async function (url, options) {
     try {
       let proxiedUrl = url;
-
       if (typeof url === "string") {
         const match = relayEndpoints.find(e => url.includes(e));
         if (match) {
@@ -299,7 +295,6 @@ observer.observe(document.body,{childList:true, subtree:true});
           if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
         }
       }
-
       return await fetchWithRetry(proxiedUrl, options);
     } catch (err) {
       console.error(`❌ Relay error [${url}]:`, err);
@@ -308,6 +303,7 @@ observer.observe(document.body,{childList:true, subtree:true});
   };
 })();
 </script>
+
 
 
 
