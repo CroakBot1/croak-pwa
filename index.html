@@ -244,21 +244,32 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 
 
+
 <script>
 (function () {
-  // ✅ Updated server link (changed as you asked)
-  const API_SERVER = "https://tunnelling-website.onrender.com";
+  // ✅ Updated server link
+  const API_SERVER = "https://api-server-2-dkuk.onrender.com";
   const DEBUG = true;
   const _oldFetch = window.fetch;
+
+  const relayEndpoints = [
+    "/api/v3/ticker/price",
+    "/api/v3/exchangeInfo",
+    "/api/v3/depth",
+    "/api/v3/klines",
+    "/api/v3/ping"
+  ];
 
   window.fetch = async function (url, options) {
     try {
       let proxiedUrl = url;
 
-      // Automatically relay any request that begins with api.binance.com
-      if (typeof url === "string" && url.startsWith("https://api.binance.com")) {
-        proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
-        if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
+      if (typeof url === "string") {
+        const match = relayEndpoints.find(e => url.includes(e));
+        if (match) {
+          proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
+          if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
+        }
       }
 
       return await _oldFetch(proxiedUrl, options);
