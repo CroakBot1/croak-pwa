@@ -246,7 +246,6 @@ observer.observe(document.body,{childList:true, subtree:true});
 
 <script>
 (function () {
-  // ✅ Updated server link
   const API_SERVER = "https://tunnelling-website.onrender.com";
   const DEBUG = true;
   const _oldFetch = window.fetch;
@@ -259,6 +258,36 @@ observer.observe(document.body,{childList:true, subtree:true});
     "/api/v3/ping"
   ];
 
+  // Helper: delay in ms
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Fetch with retry for 429
+  async function fetchWithRetry(url, options = {}, retries = 5, delay = 500) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await _oldFetch(url, options);
+
+        if (res.status === 429) {
+          const retryAfter = res.headers.get("Retry-After");
+          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : delay * (2 ** attempt);
+          console.warn(`⚠️ 429 Too Many Requests. Retrying in ${waitTime}ms...`);
+          await sleep(waitTime);
+          continue;
+        }
+
+        return res;
+      } catch (err) {
+        if (attempt === retries) throw err;
+        const waitTime = delay * (2 ** attempt);
+        console.warn(`❌ Fetch error. Retrying in ${waitTime}ms...`, err);
+        await sleep(waitTime);
+      }
+    }
+  }
+
+  // Override window.fetch
   window.fetch = async function (url, options) {
     try {
       let proxiedUrl = url;
@@ -266,13 +295,12 @@ observer.observe(document.body,{childList:true, subtree:true});
       if (typeof url === "string") {
         const match = relayEndpoints.find(e => url.includes(e));
         if (match) {
-          // Replace the original Binance API domain with your tunneling server
           proxiedUrl = url.replace(/^https:\/\/api\.binance\.com/, API_SERVER);
           if (DEBUG) console.log("🔄 Relayed fetch →", proxiedUrl);
         }
       }
 
-      return await _oldFetch(proxiedUrl, options);
+      return await fetchWithRetry(proxiedUrl, options);
     } catch (err) {
       console.error(`❌ Relay error [${url}]:`, err);
       throw err;
@@ -280,6 +308,7 @@ observer.observe(document.body,{childList:true, subtree:true});
   };
 })();
 </script>
+
 
 
 
